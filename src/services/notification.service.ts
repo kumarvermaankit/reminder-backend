@@ -1,0 +1,116 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { WhatsappService } from './whatsapp.service';
+import { UserService } from './user.service';
+import { ReminderSchedule } from '../entities/reminder-schedule.entity';
+import { User } from '../entities/user.entity';
+
+@Injectable()
+export class NotificationService {
+  private readonly logger = new Logger(NotificationService.name);
+
+  constructor(
+    private readonly whatsappService: WhatsappService,
+    private readonly userService: UserService,
+  ) {}
+
+  async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
+    try {
+      const { reminder } = schedule;
+      const user = await this.userService.getUserById(reminder.userId);
+      
+      if (!user) {
+        this.logger.error(`User not found for reminder ${schedule.id}`);
+        return false;
+      }
+
+      // Check if user is in quiet hours
+      if (this.userService.isInQuietHours(user)) {
+        this.logger.log(`User ${user.id} is in quiet hours, skipping reminder ${schedule.id}`);
+        return false;
+      }
+
+      // Check daily reminder limit
+      const todayReminders = await this.getTodayReminderCount(user.id);
+      if (todayReminders >= user.maxDailyReminders) {
+        this.logger.log(`User ${user.id} has reached daily limit, skipping reminder ${schedule.id}`);
+        return false;
+      }
+
+      const message = this.formatReminderMessage(reminder.title, reminder.description, user.name, reminder.reminderCount);
+
+      // Send based on user's preferred contact method
+      let sent = false;
+      switch (user.preferredContactMethod) {
+        case 'whatsapp':
+          if (user.phone) {
+            await this.whatsappService.sendMessage(user.phone, message);
+            sent = true;
+          }
+          break;
+        case 'email':
+          // TODO: Implement email service
+          this.logger.warn(`Email service not implemented for user ${user.id}`);
+          break;
+        case 'sms':
+          // TODO: Implement SMS service
+          this.logger.warn(`SMS service not implemented for user ${user.id}`);
+          break;
+      }
+
+      if (sent) {
+        this.logger.log(`Successfully sent reminder ${schedule.id} to user ${user.id} via ${user.preferredContactMethod}`);
+        await this.incrementDailyReminderCount(user.id);
+        return true;
+      } else {
+        this.logger.error(`No valid contact method for user ${user.id}`);
+        return false;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send reminder ${schedule.id}:`, error);
+      throw error;
+    }
+  }
+
+private formatReminderMessage(title: string, description: string, userName: string, reminderCount: number = 1): string {
+    const messages = [
+      `Hey ${userName}! Quick reminder: ${title} ${description}`,
+      `${userName}, don't forget: ${title}! ${description}`,
+      `Hi ${userName}! Just checking in about: ${title} ${description}`,
+      `Hey ${userName}! Time for: ${title} ${description}`,
+    ];
+    
+    // Rotate messages to avoid repetition
+    const messageIndex = (reminderCount - 1) % messages.length;
+    let message = messages[messageIndex];
+    
+    // Add persistence indicator for repeated reminders
+    if (reminderCount > 1) {
+      message += `\n\n(Just checking in - let me know when you're done with this and I'll stop reminding you!)`;
+    }
+    
+    return message;
+  }
+
+  async sendRetry(schedule: ReminderSchedule): Promise<boolean> {
+    const retryDelay = Math.pow(2, schedule.retryCount) * 1000; // Exponential backoff
+    
+    this.logger.log(`Scheduling retry for reminder ${schedule.id} in ${retryDelay}ms`);
+    
+    // In a real implementation, you might use a job queue for retries
+    // For now, we'll just wait and retry
+    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    
+    return this.sendReminder(schedule);
+  }
+
+  private async getTodayReminderCount(userId: string): Promise<number> {
+    // This would typically query a daily reminder counter
+    // For now, return 0 as a placeholder
+    return 0;
+  }
+
+  private async incrementDailyReminderCount(userId: string): Promise<void> {
+    // This would typically increment a daily reminder counter
+    // For now, it's a placeholder
+  }
+}

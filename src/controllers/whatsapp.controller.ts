@@ -97,7 +97,12 @@ export class WhatsappController {
       this.logger.log('Checking for task completion...');
       const userReminders = await this.reminderService.getPendingRemindersForUser(user.id);
       this.logger.log(`User has ${userReminders.length} pending reminders`);
-      const completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
+
+      // Skip completion check if no pending reminders exist
+      let completionCheck = { completed: false };
+      if (userReminders.length > 0) {
+        completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
+      }
       this.logger.log(`Completion check: completed=${completionCheck.completed}`);
 
       if (completionCheck.completed && completionCheck.reminderId) {

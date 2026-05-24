@@ -456,7 +456,9 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
       messages: [
         { 
           role: 'system', 
-          content: `Detect task completion. User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}` 
+          content: `You detect if a user is marking a task as done. Only set completed: true if the user message clearly refers to one of the EXACT reminder titles listed below with its exact ID. If no match, return completed: false. NEVER invent fake IDs.
+
+User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "exact_id_from_list_only", "response": "confirmation"}` 
         },
         { role: 'user', content: userInput }
       ],
@@ -472,12 +474,13 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     const model = provider.client.getGenerativeModel({ model: provider.models.completion });
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
     
-    const prompt = `Detect task completion. User reminders:
+    const prompt = `You detect if a user is marking a task as done. Only set completed: true if the user message clearly refers to one of the EXACT reminder titles listed below with its exact ID. If no match, return completed: false. NEVER invent fake IDs.
+User reminders:
 ${remindersText}
 
 User: ${userInput}
 
-Return JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`;
+Return JSON: {"completed": true/false, "reminderId": "exact_id_from_list_only", "response": "confirmation"}`;
 
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -503,7 +506,7 @@ Return JSON: {"completed": true/false, "reminderId": "id", "response": "confirma
       messages: [
         { 
           role: 'system', 
-          content: `Detect task completion. User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}` 
+          content: `You detect if a user is marking a task as done. Only set completed: true if the user message clearly refers to one of the EXACT reminder titles listed below with its exact ID. If no match, return completed: false. NEVER invent fake IDs.\n\nUser reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "exact_id_from_list_only", "response": "confirmation"}` 
         },
         { role: 'user', content: userInput }
       ],
@@ -518,7 +521,7 @@ Return JSON: {"completed": true/false, "reminderId": "id", "response": "confirma
   private async detectCompletionWithReplicate(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
     
-    const prompt = `Detect task completion. User reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`;
+    const prompt = `You detect if a user is marking a task as done. Only set completed: true if the user message clearly refers to one of the EXACT reminder titles listed below with its exact ID. If no match, return completed: false. NEVER invent fake IDs.\n\nUser reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "exact_id_from_list_only", "response": "confirmation"}`;
     
     const response = await provider.client.run(provider.models.completion, {
       input: {

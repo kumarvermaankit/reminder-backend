@@ -27,10 +27,14 @@ import { User } from './entities/user.entity';
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: process.env.DB_DATABASE || './data/reminder.db',
+      type: 'mysql',
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT, 10) || 3306,
+      username: process.env.DB_USERNAME || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_DATABASE || 'reminder_app',
       entities: [Reminder, ReminderSchedule, User],
-      synchronize: true, // Only for development - auto creates schema
+      synchronize: true,
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User])  ],
   controllers: [AppController, AiController, WhatsappController],

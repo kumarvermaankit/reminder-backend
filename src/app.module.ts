@@ -34,6 +34,6 @@ import { User } from './entities/user.entity';
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User])  ],
   controllers: [AppController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService],
 })
 export class AppModule {}

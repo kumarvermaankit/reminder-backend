@@ -74,11 +74,14 @@ export class NotificationService {
 private formatReminderMessage(title: string, description: string, userName: string, reminderCount: number = 1): string {
     const safeCount = Math.max(1, reminderCount);
     const descStr = description ? ` - ${description}` : '';
+    const greeting = (!userName || userName === 'there' || userName.startsWith('WhatsApp User'))
+      ? 'Hi!'
+      : `Hey ${userName}!`;
     const messages = [
-      `Hey ${userName}! Quick reminder: ${title}${descStr}`,
-      `${userName}, don't forget: ${title}!${descStr}`,
-      `Hi ${userName}! Just checking in about: ${title}${descStr}`,
-      `Hey ${userName}! Time for: ${title}${descStr}`,
+      `${greeting} Quick reminder: ${title}${descStr}`,
+      `${greeting} Don't forget: ${title}!${descStr}`,
+      `${greeting} Just checking in about: ${title}${descStr}`,
+      `${greeting} Time for: ${title}${descStr}`,
     ];
     
     // Rotate messages to avoid repetition

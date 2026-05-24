@@ -75,4 +75,8 @@ export class ReminderService {
   async getAllSchedules() {
     return await this.scheduleRepository.find();
   }
+
+  async deleteAllSchedulesForReminder(reminderId: string) {
+    await this.scheduleRepository.delete({ reminderId });
+  }
 }

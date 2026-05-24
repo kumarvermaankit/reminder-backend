@@ -54,9 +54,17 @@ export class SchedulerService {
 
       for (const schedule of dueSchedules) {
         try {
+          // Skip if reminder was already completed (user said "done" while scheduler was processing)
+          const currentReminder = await this.reminderRepository.findOne({ where: { id: schedule.reminder.id } });
+          if (!currentReminder || currentReminder.isCompleted) {
+            this.logger.log(`Reminder ${schedule.reminder.id} already completed, skipping`);
+            await this.markScheduleCompleted(schedule.id);
+            continue;
+          }
+
           await this.notificationService.sendReminder(schedule);
           await this.markScheduleCompleted(schedule.id);
-          await this.handlePersistentReminder(schedule.reminder);
+          await this.handlePersistentReminder(currentReminder);
           successCount++;
         } catch (error) {
           this.logger.error(`Failed to send reminder ${schedule.id}:`, error);
@@ -83,6 +91,10 @@ export class SchedulerService {
   }
 
   private async handlePersistentReminder(reminder: any): Promise<void> {
+    // Re-fetch from DB to get latest state (user might have marked done)
+    const fresh = await this.reminderRepository.findOne({ where: { id: reminder.id } });
+    if (!fresh || fresh.isCompleted) return;
+
     // Increment reminder count
     await this.reminderRepository.update(reminder.id, {
       reminderCount: reminder.reminderCount + 1,

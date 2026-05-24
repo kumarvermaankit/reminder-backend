@@ -173,7 +173,7 @@ export class WhatsappController {
             response: "Got it! Marked as done.",
           };
         } else if (isDoneRequest && userReminders.length > 1 && user.lastReminderIds?.length) {
-          // Match oldest reminder from lastReminderIds that is still pending
+          // Match most recently sent reminder from lastReminderIds that is still pending
           const toComplete = user.lastReminderIds.find(id => userReminders.some(r => r.id === id));
           if (toComplete) {
             this.logger.log(`Matched from lastReminderIds: ${toComplete}`);

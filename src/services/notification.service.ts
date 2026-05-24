@@ -61,10 +61,10 @@ export class NotificationService {
         this.logger.log(`Successfully sent reminder ${schedule.id} to user ${user.id} via ${user.preferredContactMethod}`);
         await this.incrementDailyReminderCount(user.id);
 
-        // Track last 5 reminder IDs sent to this user
+        // Track last 5 reminder IDs sent to this user (most recent first)
         const lastIds = user.lastReminderIds || [];
-        lastIds.push(schedule.reminderId);
-        if (lastIds.length > 5) lastIds.shift();
+        lastIds.unshift(schedule.reminderId);
+        if (lastIds.length > 5) lastIds.pop();
         await this.userService.updateUser(user.id, { lastReminderIds: lastIds });
 
         return true;

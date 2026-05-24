@@ -109,7 +109,7 @@ export class WhatsappController {
         this.logger.log(`Marking reminder ${completionCheck.reminderId} as completed`);
         await this.reminderService.markAsCompleted(completionCheck.reminderId);
         await this.reminderService.deleteReminder(completionCheck.reminderId);
-        await this.whatsappService.sendMessage(userPhone, completionCheck.response);
+        await this.whatsappService.sendMessage(userPhone, completionCheck.response || "Got it! Marked as done.");
         return;
       }
 

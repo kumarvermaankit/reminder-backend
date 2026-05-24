@@ -93,6 +93,22 @@ export class WhatsappController {
         this.logger.log(`Found existing user ${user.id}`);
       }
 
+      // Check for timezone update request
+      const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
+      if (tzMatch) {
+        const tz = tzMatch[1].trim();
+        const validTz = this.lookupTimezone(tz);
+        if (validTz) {
+          await this.userService.updateUser(user.id, { timezone: validTz });
+          user.timezone = validTz;
+          await this.whatsappService.sendMessage(userPhone, `Got it! Your timezone is set to ${validTz}.`);
+          return;
+        } else {
+          await this.whatsappService.sendMessage(userPhone, `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`);
+          return;
+        }
+      }
+
       // Check if user is talking about completing a task
       this.logger.log('Checking for task completion...');
       const userReminders = await this.reminderService.getPendingRemindersForUser(user.id);
@@ -100,8 +116,31 @@ export class WhatsappController {
 
       // Skip completion check if no pending reminders exist
       let completionCheck: { completed: boolean; reminderId?: string; response?: string } = { completed: false, response: '' };
+
       if (userReminders.length > 0) {
-        completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
+        // Simple keyword match for "done" when there's only one reminder
+        const doneKeywords = ['done', 'im done', 'i am done', 'finished', 'complete', 'completed', 'stop', 'cancel'];
+        const isDoneRequest = doneKeywords.some(k => message.toLowerCase().trim() === k);
+
+        if (isDoneRequest && userReminders.length === 1) {
+          this.logger.log(`Simple keyword match - marking single reminder as done`);
+          completionCheck = {
+            completed: true,
+            reminderId: userReminders[0].id,
+            response: "Got it! Marked as done.",
+          };
+        } else if (isDoneRequest && userReminders.length > 1) {
+          // Match last reminder
+          const last = userReminders[userReminders.length - 1];
+          this.logger.log(`Simple keyword match - marking last reminder as done`);
+          completionCheck = {
+            completed: true,
+            reminderId: last.id,
+            response: `Got it! Marked "${last.title}" as done.`,
+          };
+        } else {
+          completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
+        }
       }
       this.logger.log(`Completion check: completed=${completionCheck.completed}`);
 
@@ -115,7 +154,7 @@ export class WhatsappController {
 
       // Try to parse as a reminder
       this.logger.log('Parsing message as reminder via AI...');
-      const parsedReminder = await this.aiService.parseReminderInput(message, user.id);
+      const parsedReminder = await this.aiService.parseReminderInput(message, user.id, user.timezone);
       this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}, intervalMinutes=${parsedReminder.intervalMinutes}`);
 
       // Save user's name if AI extracted one
@@ -246,6 +285,33 @@ export class WhatsappController {
       };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  }
+
+  private lookupTimezone(input: string): string | null {
+    const aliases: Record<string, string> = {
+      'ist': 'Asia/Kolkata',
+      'pst': 'America/Los_Angeles',
+      'pdt': 'America/Los_Angeles',
+      'cst': 'America/Chicago',
+      'cdt': 'America/Chicago',
+      'est': 'America/New_York',
+      'edt': 'America/New_York',
+      'gmt': 'GMT',
+      'utc': 'UTC',
+      'aest': 'Australia/Sydney',
+      'aedt': 'Australia/Sydney',
+      'cet': 'Europe/Paris',
+      'bst': 'Europe/London',
+    };
+    const key = input.toLowerCase().trim();
+    if (aliases[key]) return aliases[key];
+    // Check if it's a valid IANA timezone
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: input });
+      return input;
+    } catch {
+      return null;
     }
   }
 }

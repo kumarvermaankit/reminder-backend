@@ -149,7 +149,7 @@ export class SimpleAiService {
     return this.providers.length > 0 ? this.providers[0] : null;
   }
 
-  async parseReminderInput(userInput: string, userId?: string): Promise<ParsedReminder> {
+  async parseReminderInput(userInput: string, userId?: string, timezone?: string): Promise<ParsedReminder> {
     const provider = await this.selectProvider();
     if (!provider) {
       throw new Error('No AI providers available');
@@ -158,13 +158,13 @@ export class SimpleAiService {
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.parseWithGroq(provider, userInput);
+          return await this.parseWithGroq(provider, userInput, timezone);
         case 'together':
-          return await this.parseWithTogether(provider, userInput);
+          return await this.parseWithTogether(provider, userInput, timezone);
         case 'replicate':
-          return await this.parseWithReplicate(provider, userInput);
+          return await this.parseWithReplicate(provider, userInput, timezone);
         case 'gemini':
-          return await this.parseWithGemini(provider, userInput);
+          return await this.parseWithGemini(provider, userInput, timezone);
         default:
           throw new Error(`Unknown provider: ${provider.name}`);
       }
@@ -173,7 +173,7 @@ export class SimpleAiService {
       // Try next provider
       if (this.providers.length > 1) {
         this.providers.shift(); // Remove failed provider
-        return this.parseReminderInput(userInput, userId);
+        return this.parseReminderInput(userInput, userId, timezone);
       }
       throw error;
     }
@@ -256,10 +256,11 @@ export class SimpleAiService {
 
   
   // Provider-specific methods
-  private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
+  private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+    const tzInfo = timezone ? ` (${timezone})` : '';
     const prompt = `Parse this reminder request: "${userInput}"
     
-Current date: ${new Date().toISOString()}
+Current date: ${new Date().toISOString()}${tzInfo}
 
 Return JSON with:
 {
@@ -307,11 +308,12 @@ Rules:
     return parsed;
   }
 
-  private async parseWithGemini(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
+  private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
+    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
     
     const prompt = `Parse reminder: "${userInput}"
-Current time: ${new Date().toISOString()}
+Current time: ${new Date().toISOString()}${tzInfo}
 
 Return JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
 
@@ -338,12 +340,13 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     return parsed;
   }
 
-  private async parseWithTogether(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
+  private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are a reminder assistant. Return valid JSON.' },
-        { role: 'user', content: `Parse this reminder: "${userInput}"` }
+        { role: 'user', content: `Parse this reminder: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -359,8 +362,9 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     return parsed;
   }
 
-  private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
-    const prompt = `Parse this reminder: "${userInput}"\n\nReturn JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
+    const prompt = `Parse this reminder: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nReturn JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
     
     const response = await provider.client.run(provider.models.parsing, {
       input: {

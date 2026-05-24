@@ -119,7 +119,7 @@ export class WhatsappController {
       this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}, intervalMinutes=${parsedReminder.intervalMinutes}`);
 
       // Save user's name if AI extracted one
-      if (parsedReminder.userName && user.name === 'there') {
+      if (parsedReminder.userName && (user.name === 'there' || user.name.startsWith('WhatsApp User'))) {
         this.logger.log(`Updating user name to "${parsedReminder.userName}"`);
         await this.userService.updateUser(user.id, { name: parsedReminder.userName });
         user.name = parsedReminder.userName;

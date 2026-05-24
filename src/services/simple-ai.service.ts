@@ -268,8 +268,7 @@ Return JSON with:
   "reminderDate": "ISO datetime",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
-  "intervalMinutes": "number (e.g. 'every 15 min'=15, 'every hour'=60, 'every 2 hours'=120; omit if not specified)",
-  "userName": "extract user's name if they introduce themselves (e.g. 'I am John' => 'John'), otherwise omit",
+  "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'. 'every 2 minutes'=2, 'every hour'=60, 'every 30 min'=30. OMIT this field if user does NOT specify a repeat interval.",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
   "clarificationQuestion": "if needed"

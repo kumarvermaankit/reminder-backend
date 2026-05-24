@@ -199,7 +199,7 @@ export class WhatsappController {
           this.logger.log(`Reminder saved to DB with id=${createdReminder.id}, title="${createdReminder.title}", date=${createdReminder.reminderDate}`);
 
           // Send confirmation with reminder details
-          const timeStr = createdReminder.reminderDate.toLocaleString('en-US', { timeZone: user.timezone || 'UTC' });
+          const timeStr = this.formatRelativeTime(createdReminder.reminderDate);
           const confirmationMessage = `${aiResponse}\n\nReminder Details:\nTitle: ${createdReminder.title}\nTime: ${timeStr}\n\nI'll remind you when it's time!`;
           await this.whatsappService.sendMessage(userPhone, confirmationMessage);
           this.logger.log('Confirmation sent to user');
@@ -313,5 +313,18 @@ export class WhatsappController {
     } catch {
       return null;
     }
+  }
+
+  private formatRelativeTime(date: Date): string {
+    const now = Date.now();
+    const diffMs = date.getTime() - now;
+    const diffMin = Math.round(diffMs / 60000);
+    const diffHrs = Math.round(diffMs / 3600000);
+
+    if (diffMin < 1) return 'in less than a minute';
+    if (diffMin < 60) return `in ${diffMin} minutes`;
+    if (diffHrs < 24) return `today at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    if (diffHrs < 48) return `tomorrow at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 }

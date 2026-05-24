@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, LessThan, Not } from 'typeorm';
+import { Repository, Between, LessThan, Not, LessThanOrEqual } from 'typeorm';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
@@ -26,17 +26,19 @@ export class SchedulerService {
     this.logger.log('Processing due reminders...');
 
     try {
-      // Use the optimized index for efficient querying
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - 2 * 60 * 1000); // Look back 2 min
+
       const dueSchedules = await this.scheduleRepository.find({
         where: {
-          scheduledTime: LessThanOrEqual(new Date()),
+          scheduledTime: Between(windowStart, now),
           isCompleted: false,
           retryCount: LessThan(this.MAX_RETRIES),
         },
-        relations: ['reminder', 'reminder.user'], // Include user for notification preferences
-        take: this.BATCH_SIZE, // Limit batch size for performance
+        relations: ['reminder', 'reminder.user'],
+        take: this.BATCH_SIZE,
         order: {
-          scheduledTime: 'ASC', // Process oldest first
+          scheduledTime: 'ASC',
         },
       });
 

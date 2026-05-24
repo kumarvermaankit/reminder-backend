@@ -9,6 +9,7 @@ export interface ParsedReminder {
     interval?: number;
   };
   intervalMinutes?: number;
+  userName?: string;
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

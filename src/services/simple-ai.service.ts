@@ -269,6 +269,7 @@ Return JSON with:
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "number (e.g. 'every 15 min'=15, 'every hour'=60, 'every 2 hours'=120; omit if not specified)",
+  "userName": "extract user's name if they introduce themselves (e.g. 'I am John' => 'John'), otherwise omit",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
   "clarificationQuestion": "if needed"

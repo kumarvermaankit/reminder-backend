@@ -82,7 +82,7 @@ export class WhatsappController {
         this.logger.log(`No user found for ${userPhone}, creating new user`);
         user = await this.userService.createUser({
           phone: userPhone,
-          name: `WhatsApp User ${userPhone}`,
+          name: 'there',
           email: `user_${userPhone}@reminder.app`,
           preferredContactMethod: 'whatsapp',
           timezone: 'UTC',
@@ -117,6 +117,13 @@ export class WhatsappController {
       this.logger.log('Parsing message as reminder via AI...');
       const parsedReminder = await this.aiService.parseReminderInput(message, user.id);
       this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}`);
+
+      // Save user's name if AI extracted one
+      if (parsedReminder.userName && user.name === 'there') {
+        this.logger.log(`Updating user name to "${parsedReminder.userName}"`);
+        await this.userService.updateUser(user.id, { name: parsedReminder.userName });
+        user.name = parsedReminder.userName;
+      }
 
       // If it's not a reminder at all (very low confidence + needs clarification), respond conversationally
       const isCasualChat = parsedReminder.confidence < 0.3 && parsedReminder.needsClarification;

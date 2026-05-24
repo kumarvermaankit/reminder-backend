@@ -71,4 +71,8 @@ export class ReminderService {
       order: { reminderDate: 'ASC' }
     });
   }
+
+  async getAllSchedules() {
+    return await this.scheduleRepository.find();
+  }
 }

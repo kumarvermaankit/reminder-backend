@@ -35,9 +35,9 @@ export class SimpleAiService {
         name: 'groq',
         client: new Groq({ apiKey: groqApiKey }),
         models: {
-          parsing: 'llama3-8b-8192',
-          response: 'llama3-8b-8192',
-          completion: 'llama3-8b-8192'
+          parsing: 'llama-3.3-70b-versatile',
+          response: 'llama-3.3-70b-versatile',
+          completion: 'llama-3.3-70b-versatile'
         },
         priority: 1,
         costPerRequest: 0.000

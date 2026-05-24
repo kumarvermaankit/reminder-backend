@@ -35,7 +35,7 @@ export class UnifiedAiService {
         currentUsage: { daily: 0, monthly: 0, lastReset: { daily: new Date(), monthly: new Date() } },
         priority: 1,
         costPerRequest: 0.000,
-        model: 'llama3-8b-8192'
+        model: 'llama-3.3-70b-versatile'
       });
     }
 

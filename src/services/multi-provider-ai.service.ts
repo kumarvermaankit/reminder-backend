@@ -53,9 +53,9 @@ export class MultiProviderAiService {
         costPerRequest: 0.000,
         speed: 200,
         models: {
-          parsing: 'llama3-8b-8192',
-          response: 'llama3-8b-8192',
-          completion: 'llama3-8b-8192'
+          parsing: 'llama-3.3-70b-versatile',
+          response: 'llama-3.3-70b-versatile',
+          completion: 'llama-3.3-70b-versatile'
         }
       });
     }

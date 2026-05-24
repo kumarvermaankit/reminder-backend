@@ -54,6 +54,7 @@ export class SchedulerService {
         try {
           await this.notificationService.sendReminder(schedule);
           await this.markScheduleCompleted(schedule.id);
+          await this.handlePersistentReminder(schedule.reminder);
           successCount++;
         } catch (error) {
           this.logger.error(`Failed to send reminder ${schedule.id}:`, error);

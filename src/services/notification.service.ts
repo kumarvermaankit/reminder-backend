@@ -72,15 +72,17 @@ export class NotificationService {
   }
 
 private formatReminderMessage(title: string, description: string, userName: string, reminderCount: number = 1): string {
+    const safeCount = Math.max(1, reminderCount);
+    const descStr = description ? ` - ${description}` : '';
     const messages = [
-      `Hey ${userName}! Quick reminder: ${title} ${description}`,
-      `${userName}, don't forget: ${title}! ${description}`,
-      `Hi ${userName}! Just checking in about: ${title} ${description}`,
-      `Hey ${userName}! Time for: ${title} ${description}`,
+      `Hey ${userName}! Quick reminder: ${title}${descStr}`,
+      `${userName}, don't forget: ${title}!${descStr}`,
+      `Hi ${userName}! Just checking in about: ${title}${descStr}`,
+      `Hey ${userName}! Time for: ${title}${descStr}`,
     ];
     
     // Rotate messages to avoid repetition
-    const messageIndex = (reminderCount - 1) % messages.length;
+    const messageIndex = (safeCount - 1) % messages.length;
     let message = messages[messageIndex];
     
     // Add persistence indicator for repeated reminders

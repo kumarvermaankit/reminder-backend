@@ -8,6 +8,7 @@ export interface ParsedReminder {
     type: 'daily' | 'weekly' | 'monthly' | 'yearly';
     interval?: number;
   };
+  intervalMinutes?: number;
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

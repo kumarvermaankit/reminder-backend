@@ -268,9 +268,11 @@ Return JSON with:
   "reminderDate": "ISO datetime",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
+  "intervalMinutes": "number (e.g. 'every 15 min'=15, 'every hour'=60, 'every 2 hours'=120; omit if not specified)",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
   "clarificationQuestion": "if needed"
+}
 
 Rules:
 - morning=9am, afternoon=2pm, evening=6pm, night=8pm

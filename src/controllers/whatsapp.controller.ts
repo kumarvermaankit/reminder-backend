@@ -140,8 +140,8 @@ export class WhatsappController {
             description: parsedReminder.description,
             reminderDate: parsedReminder.reminderDate,
             isCompleted: false,
-            isPersistent: true,
-            reminderInterval: 30,
+          isPersistent: true,
+          reminderInterval: parsedReminder.intervalMinutes || 30,
             reminderCount: 0,
             metadata: {
               category: parsedReminder.category,

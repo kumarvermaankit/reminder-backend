@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { WhatsappService } from '../services/whatsapp.service';
 import { AiService } from '../services/ai.service';
 import { UserService } from '../services/user.service';
@@ -35,22 +36,27 @@ export class WhatsappController {
   }
 
   @Get('webhook')
-  async verifyWebhook(@Query() query: any) {
+  async verifyWebhook(@Query() query: any, @Res() res: Response) {
     // WhatsApp webhook verification
     const mode = query['hub.mode'];
     const token = query['hub.verify_token'];
     const challenge = query['hub.challenge'];
 
     if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-      return challenge;
+      res.set('Content-Type', 'text/plain');
+      res.status(200).send(challenge);
     } else {
-      return { status: 'error', message: 'Verification failed' };
+      res.status(403).json({ status: 'error', message: 'Verification failed' });
     }
   }
 
   private async handleMessage(messageData: any) {
     const messages = messageData.messages;
-    const phoneNumber = messageData.metadata.display_phone_number;
+    if (!messages || !Array.isArray(messages)) {
+      return; // Status updates etc. have no messages array
+    }
+
+    const phoneNumber = messageData.metadata?.display_phone_number;
 
     for (const message of messages) {
       if (message.type === 'text') {
@@ -97,8 +103,14 @@ export class WhatsappController {
       // Try to parse as a reminder
       const parsedReminder = await this.aiService.parseReminderInput(message, user.id);
       
-      // Generate AI response
-      const aiResponse = await this.aiService.generateBasicResponse(message, parsedReminder);
+      // If it's not a reminder at all (very low confidence + needs clarification), respond conversationally
+      const isCasualChat = parsedReminder.confidence < 0.3 && parsedReminder.needsClarification;
+      
+      // Generate AI response - don't pass parsedReminder for casual chat
+      const aiResponse = await this.aiService.generateBasicResponse(
+        message, 
+        isCasualChat ? undefined : parsedReminder
+      );
       
       // Create reminder if confident enough and no clarification needed
       if (parsedReminder.confidence > 0.7 && !parsedReminder.needsClarification) {

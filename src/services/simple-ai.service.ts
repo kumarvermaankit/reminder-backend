@@ -380,8 +380,8 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
 
   private async generateWithGroq(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
     const prompt = reminder 
-      ? `User said: "${userInput}"\nI understood: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}\nGenerate a friendly, casual confirmation response.`
-      : `User said: "${userInput}"\nGenerate a friendly response asking for more details about the reminder.`;
+      ? `User said: "${userInput}"\nI understood this as a reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}\nGenerate a friendly, casual confirmation response.`
+      : `User said: "${userInput}"\nThis doesn't seem like a reminder. Just respond conversationally and naturally without mentioning reminders.`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
@@ -401,7 +401,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     
     const prompt = reminder 
       ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". Ask for reminder details:`;
+      : `User: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
 
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -417,7 +417,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   private async generateWithTogether(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
     const prompt = reminder 
       ? `User said: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Generate a friendly confirmation response.`
-      : `User said: "${userInput}". Generate a friendly response asking for more details about the reminder.`;
+      : `User said: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
@@ -435,7 +435,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   private async generateWithReplicate(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
     const prompt = reminder 
       ? `User said: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Generate a friendly confirmation response.`
-      : `User said: "${userInput}". Generate a friendly response asking for more details about the reminder.`;
+      : `User said: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
 
     const response = await provider.client.run(provider.models.response, {
       input: {
@@ -541,7 +541,12 @@ Return JSON: {"completed": true/false, "reminderId": "id", "response": "confirma
       ];
       return responses[Math.floor(Math.random() * responses.length)];
     } else {
-      return "When would you like me to remind you about that?";
+      const casualResponses = [
+        "Hey! How can I help you today?",
+        "Got it! Let me know if you need anything.",
+        "👋 I'm here if you need to set a reminder or just chat!"
+      ];
+      return casualResponses[Math.floor(Math.random() * casualResponses.length)];
     }
   }
 }

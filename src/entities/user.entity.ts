@@ -19,9 +19,9 @@ export class User {
   timezone: string;
 
   @Column({ 
-    type: 'varchar', 
+    type: 'varchar',
+    length: 20,
     default: 'email',
-    enum: ['email', 'whatsapp', 'sms']
   })
   preferredContactMethod: 'email' | 'whatsapp' | 'sms';
 

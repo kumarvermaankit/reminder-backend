@@ -451,14 +451,14 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   }
 
   private async detectCompletionWithGroq(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
-    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
+    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
       messages: [
         { 
           role: 'system', 
-          content: `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.
+          content: `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" without specifying which one, match the LAST/most recent reminder in the list. The reminderId MUST be one of the IDs listed below - never invent one.
 
 User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}` 
         },
@@ -474,7 +474,7 @@ User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "rem
 
   private async detectCompletionWithGemini(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
     const model = provider.client.getGenerativeModel({ model: provider.models.completion });
-    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
+    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
     const prompt = `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.
 User reminders:
@@ -501,7 +501,7 @@ Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_c
   }
 
   private async detectCompletionWithTogether(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
-    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
+    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
@@ -521,7 +521,7 @@ Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_c
   }
 
   private async detectCompletionWithReplicate(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
-    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
+    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
     const prompt = `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.\n\nUser reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}`;
     

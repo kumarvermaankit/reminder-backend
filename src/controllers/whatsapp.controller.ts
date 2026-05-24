@@ -160,7 +160,8 @@ export class WhatsappController {
           this.logger.log(`Reminder saved to DB with id=${createdReminder.id}, title="${createdReminder.title}", date=${createdReminder.reminderDate}`);
 
           // Send confirmation with reminder details
-          const confirmationMessage = `${aiResponse}\n\nReminder Details:\nTitle: ${createdReminder.title}\nTime: ${createdReminder.reminderDate.toLocaleString()}\n\nI'll remind you when it's time!`;
+          const timeStr = createdReminder.reminderDate.toLocaleString('en-US', { timeZone: user.timezone || 'UTC' });
+          const confirmationMessage = `${aiResponse}\n\nReminder Details:\nTitle: ${createdReminder.title}\nTime: ${timeStr}\n\nI'll remind you when it's time!`;
           await this.whatsappService.sendMessage(userPhone, confirmationMessage);
           this.logger.log('Confirmation sent to user');
         } catch (dbError) {

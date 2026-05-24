@@ -116,7 +116,7 @@ export class WhatsappController {
       // Try to parse as a reminder
       this.logger.log('Parsing message as reminder via AI...');
       const parsedReminder = await this.aiService.parseReminderInput(message, user.id);
-      this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}`);
+      this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}, intervalMinutes=${parsedReminder.intervalMinutes}`);
 
       // Save user's name if AI extracted one
       if (parsedReminder.userName && user.name === 'there') {

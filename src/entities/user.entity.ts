@@ -37,6 +37,9 @@ export class User {
   @Column({ default: 10 })
   maxDailyReminders: number;
 
+  @Column('simple-json', { nullable: true })
+  lastReminderIds: string[];
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

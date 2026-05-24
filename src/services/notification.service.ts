@@ -60,6 +60,13 @@ export class NotificationService {
       if (sent) {
         this.logger.log(`Successfully sent reminder ${schedule.id} to user ${user.id} via ${user.preferredContactMethod}`);
         await this.incrementDailyReminderCount(user.id);
+
+        // Track last 5 reminder IDs sent to this user
+        const lastIds = user.lastReminderIds || [];
+        lastIds.push(schedule.reminderId);
+        if (lastIds.length > 5) lastIds.shift();
+        await this.userService.updateUser(user.id, { lastReminderIds: lastIds });
+
         return true;
       } else {
         this.logger.error(`No valid contact method for user ${user.id}`);

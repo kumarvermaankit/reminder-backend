@@ -93,6 +93,49 @@ export class WhatsappController {
         this.logger.log(`Found existing user ${user.id}`);
       }
 
+      // Onboarding: check if user hasn't set their name yet
+      const greetings = ['hi', 'hello', 'hey', 'hii', 'heyy', 'start'];
+      const isGreeting = greetings.includes(message.toLowerCase().trim());
+
+      if (user.name === 'there' && isGreeting) {
+        await this.whatsappService.sendMessage(userPhone, 
+          `Hi there! 👋 I'm your Reminder Assistant.\n\nTo get started, could you tell me your name and which city you're in?\n\nFor example: "I'm John from Mumbai"`);
+        return;
+      }
+
+      // Extract name and location from response
+      const infoMatch = message.match(/(?:i(?:'| a)m\s+)?(\w+)\s+(?:from|in|at)\s+(.+)/i);
+      if (infoMatch && user.name === 'there') {
+        const newName = infoMatch[1];
+        const location = infoMatch[2].trim();
+        await this.userService.updateUser(user.id, { name: newName });
+        user.name = newName;
+
+        // Try to derive timezone from location
+        const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+        if (tz) {
+          await this.userService.updateUser(user.id, { timezone: tz });
+          user.timezone = tz;
+          await this.whatsappService.sendMessage(userPhone, 
+            `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`);
+        } else {
+          await this.whatsappService.sendMessage(userPhone, 
+            `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`);
+        }
+        return;
+      }
+
+      // Simple name-only intro (no location)
+      const nameMatch = message.match(/i(?:'| a)m\s+(\w+)/i);
+      if (nameMatch && user.name === 'there') {
+        const newName = nameMatch[1];
+        await this.userService.updateUser(user.id, { name: newName });
+        user.name = newName;
+        await this.whatsappService.sendMessage(userPhone, 
+          `Nice to meet you, ${newName}! 🎉 Also, which city are you in so I can set the right time for your reminders?`);
+        return;
+      }
+
       // Check for timezone update request
       const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
       if (tzMatch) {
@@ -118,7 +161,7 @@ export class WhatsappController {
       let completionCheck: { completed: boolean; reminderId?: string; response?: string } = { completed: false, response: '' };
 
       if (userReminders.length > 0) {
-        // Simple keyword match for "done" when there's only one reminder
+        // Simple keyword match for "done"
         const doneKeywords = ['done', 'im done', 'i am done', 'finished', 'complete', 'completed', 'stop', 'cancel'];
         const isDoneRequest = doneKeywords.some(k => message.toLowerCase().trim() === k);
 
@@ -129,10 +172,20 @@ export class WhatsappController {
             reminderId: userReminders[0].id,
             response: "Got it! Marked as done.",
           };
+        } else if (isDoneRequest && userReminders.length > 1 && user.lastReminderIds?.length) {
+          // Match oldest reminder from lastReminderIds that is still pending
+          const toComplete = user.lastReminderIds.find(id => userReminders.some(r => r.id === id));
+          if (toComplete) {
+            this.logger.log(`Matched from lastReminderIds: ${toComplete}`);
+            completionCheck = {
+              completed: true,
+              reminderId: toComplete,
+              response: "Got it! Marked as done.",
+            };
+          }
         } else if (isDoneRequest && userReminders.length > 1) {
-          // Match last reminder
           const last = userReminders[userReminders.length - 1];
-          this.logger.log(`Simple keyword match - marking last reminder as done`);
+          this.logger.log(`Falling back to last reminder: ${last.id}`);
           completionCheck = {
             completed: true,
             reminderId: last.id,
@@ -308,13 +361,49 @@ export class WhatsappController {
     };
     const key = input.toLowerCase().trim();
     if (aliases[key]) return aliases[key];
-    // Check if it's a valid IANA timezone
     try {
       Intl.DateTimeFormat(undefined, { timeZone: input });
       return input;
     } catch {
       return null;
     }
+  }
+
+  private guessTimezoneFromLocation(location: string): string | null {
+    const cityMap: Record<string, string> = {
+      'mumbai': 'Asia/Kolkata',
+      'delhi': 'Asia/Kolkata',
+      'new delhi': 'Asia/Kolkata',
+      'bangalore': 'Asia/Kolkata',
+      'bengaluru': 'Asia/Kolkata',
+      'chennai': 'Asia/Kolkata',
+      'hyderabad': 'Asia/Kolkata',
+      'kolkata': 'Asia/Kolkata',
+      'pune': 'Asia/Kolkata',
+      'ahmedabad': 'Asia/Kolkata',
+      'jaipur': 'Asia/Kolkata',
+      'london': 'Europe/London',
+      'manchester': 'Europe/London',
+      'new york': 'America/New_York',
+      'nyc': 'America/New_York',
+      'los angeles': 'America/Los_Angeles',
+      'la': 'America/Los_Angeles',
+      'san francisco': 'America/Los_Angeles',
+      'chicago': 'America/Chicago',
+      'dubai': 'Asia/Dubai',
+      'singapore': 'Asia/Singapore',
+      'sydney': 'Australia/Sydney',
+      'melbourne': 'Australia/Sydney',
+      'toronto': 'America/Toronto',
+      'paris': 'Europe/Paris',
+      'berlin': 'Europe/Berlin',
+      'tokyo': 'Asia/Tokyo',
+      'seoul': 'Asia/Seoul',
+      'shanghai': 'Asia/Shanghai',
+      'beijing': 'Asia/Shanghai',
+    };
+    const loc = location.toLowerCase().trim();
+    return cityMap[loc] || null;
   }
 
   private formatRelativeTime(date: Date): string {

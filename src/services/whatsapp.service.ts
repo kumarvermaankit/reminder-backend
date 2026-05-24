@@ -20,6 +20,11 @@ export class WhatsappService {
 
   async sendMessage(to: string, message: string): Promise<boolean> {
     try {
+      if (!message || message.trim().length === 0) {
+        this.logger.error(`Attempted to send empty message to ${to}. Stack: ${new Error().stack}`);
+        return false;
+      }
+
       // Format phone number (remove + if present)
       const formattedPhone = to.replace(/^\+/, '');
       

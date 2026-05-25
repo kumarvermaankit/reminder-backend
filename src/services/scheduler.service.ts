@@ -1,16 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, LessThan, Not } from 'typeorm';
+import { Repository, LessThanOrEqual, LessThan, Not, In } from 'typeorm';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
+
+function partition<T>(arr: T[], pred: (t: T) => boolean): [T[], T[]] {
+  const pass: T[] = [];
+  const fail: T[] = [];
+  for (const item of arr) (pred(item) ? pass : fail).push(item);
+  return [pass, fail];
+}
 
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
   private readonly MAX_RETRIES = 3;
-  private readonly BATCH_SIZE = 1000;
+  private readonly BATCH_SIZE = 200;
+  private readonly CONCURRENCY = 10;
+  private processing = false;
 
   constructor(
     @InjectRepository(ReminderSchedule)
@@ -20,8 +29,14 @@ export class SchedulerService {
     private readonly notificationService: NotificationService,
   ) {}
 
-  @Cron('0 * * * * *') // Run every minute
+  @Cron('0 * * * * *')
   async processDueReminders() {
+    if (this.processing) {
+      this.logger.warn('Previous run still in progress, skipping');
+      return;
+    }
+    this.processing = true;
+
     const startTime = Date.now();
     this.logger.log('Processing due reminders...');
 
@@ -32,11 +47,9 @@ export class SchedulerService {
           isCompleted: false,
           retryCount: LessThan(this.MAX_RETRIES),
         },
-        relations: ['reminder', 'reminder.user'],
+        relations: ['reminder'],
         take: this.BATCH_SIZE,
-        order: {
-          scheduledTime: 'ASC',
-        },
+        order: { scheduledTime: 'ASC' },
       });
 
       if (dueSchedules.length === 0) {
@@ -46,96 +59,103 @@ export class SchedulerService {
 
       this.logger.log(`Found ${dueSchedules.length} due reminders`);
 
+      // Filter out schedules whose reminder is already completed (data is in-memory via relation join)
+      const [skipped, active] = partition(dueSchedules, s => s.reminder.isCompleted);
+
+      if (skipped.length > 0) {
+        await this.scheduleRepository.update(
+          { id: In(skipped.map(s => s.id)) },
+          { isCompleted: true, sentAt: new Date(), sentVia: 'whatsapp' },
+        );
+        this.logger.log(`Skipped ${skipped.length} schedules (reminder already completed)`);
+      }
+
+      // Process active reminders in parallel batches
       let successCount = 0;
       let failureCount = 0;
 
-      for (const schedule of dueSchedules) {
-        try {
-          // Skip if reminder was already completed (user said "done" while scheduler was processing)
-          const currentReminder = await this.reminderRepository.findOne({ where: { id: schedule.reminder.id } });
-          if (!currentReminder || currentReminder.isCompleted) {
-            this.logger.log(`Reminder ${schedule.reminder.id} already completed, skipping`);
-            await this.markScheduleCompleted(schedule.id);
-            continue;
-          }
+      for (let i = 0; i < active.length; i += this.CONCURRENCY) {
+        const batch = active.slice(i, i + this.CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(schedule => this.processOne(schedule))
+        );
 
-          await this.notificationService.sendReminder(schedule);
-          await this.markScheduleCompleted(schedule.id);
-          await this.handlePersistentReminder(currentReminder);
-          successCount++;
-        } catch (error) {
-          this.logger.error(`Failed to send reminder ${schedule.id}:`, error);
-          await this.handleFailedSchedule(schedule, error);
-          failureCount++;
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value) {
+            successCount++;
+          } else {
+            failureCount++;
+          }
         }
       }
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `Processed ${dueSchedules.length} reminders in ${duration}ms. Success: ${successCount}, Failures: ${failureCount}`
+        `Processed ${active.length} in ${duration}ms (success: ${successCount}, fail: ${failureCount})`
       );
     } catch (error) {
       this.logger.error('Error processing due reminders:', error);
+    } finally {
+      this.processing = false;
     }
   }
 
-  private async markScheduleCompleted(scheduleId: string) {
-    await this.scheduleRepository.update(scheduleId, {
-      isCompleted: true,
-      sentAt: new Date(),
-      sentVia: 'whatsapp', // Default for now
-    });
+  private async processOne(schedule: ReminderSchedule): Promise<boolean> {
+    try {
+      await this.notificationService.sendReminder(schedule);
+
+      // Mark completed *after* successful send (at-least-once semantics).
+      // Atomic WHERE isCompleted=false prevents double-mark if "done" raced in.
+      await this.scheduleRepository.update(
+        { id: schedule.id, isCompleted: false },
+        { isCompleted: true, sentAt: new Date(), sentVia: 'whatsapp' },
+      );
+
+      await this.handlePersistentReminder(schedule.reminder);
+      return true;
+
+    } catch (error) {
+      this.logger.error(`Failed to send reminder ${schedule.id}:`, error);
+      await this.handleFailedSchedule(schedule, error);
+      return false;
+    }
   }
 
   private async handlePersistentReminder(reminder: any): Promise<void> {
-    // Re-fetch from DB to get latest state (user might have marked done)
-    const fresh = await this.reminderRepository.findOne({ where: { id: reminder.id } });
-    if (!fresh || fresh.isCompleted) return;
+    const fresh = await this.reminderRepository.findOne({
+      where: { id: reminder.id },
+      select: ['id', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval'],
+    });
+    if (!fresh || fresh.isCompleted || !fresh.isPersistent) return;
 
-    // Increment reminder count
     await this.reminderRepository.update(reminder.id, {
-      reminderCount: reminder.reminderCount + 1,
-      lastRemindedAt: new Date()
+      reminderCount: fresh.reminderCount + 1,
+      lastRemindedAt: new Date(),
     });
 
-    // Schedule next reminder if persistent
-    if (reminder.isPersistent && !reminder.isCompleted) {
-      const nextReminderTime = new Date(Date.now() + reminder.reminderInterval * 60 * 1000);
-      
-      const nextSchedule = this.scheduleRepository.create({
+    const nextTime = new Date(Date.now() + fresh.reminderInterval * 60 * 1000);
+    await this.scheduleRepository.save(
+      this.scheduleRepository.create({
         reminderId: reminder.id,
-        scheduledTime: nextReminderTime,
+        scheduledTime: nextTime,
         isCompleted: false,
-        retryCount: 0
-      });
-      
-      await this.scheduleRepository.save(nextSchedule);
-      
-      this.logger.log(`Scheduled next persistent reminder for ${reminder.id} at ${nextReminderTime}`);
-    }
+        retryCount: 0,
+      }),
+    );
   }
 
   private async handleFailedSchedule(schedule: ReminderSchedule, error: Error) {
     const newRetryCount = schedule.retryCount + 1;
-    
+    await this.scheduleRepository.update(schedule.id, {
+      retryCount: newRetryCount,
+      lastRetryAt: new Date(),
+      errorMessage: error.message,
+    });
+
     if (newRetryCount >= this.MAX_RETRIES) {
-      // Mark as failed after max retries
-      await this.scheduleRepository.update(schedule.id, {
-        retryCount: newRetryCount,
-        errorMessage: error.message,
-        lastRetryAt: new Date(),
-      });
-      
       this.logger.error(`Reminder ${schedule.id} failed after ${this.MAX_RETRIES} retries`);
     } else {
-      // Update retry count and schedule next retry
-      await this.scheduleRepository.update(schedule.id, {
-        retryCount: newRetryCount,
-        lastRetryAt: new Date(),
-        errorMessage: error.message,
-      });
-      
-      this.logger.log(`Scheduled retry ${newRetryCount}/${this.MAX_RETRIES} for reminder ${schedule.id}`);
+      this.logger.log(`Retry ${newRetryCount}/${this.MAX_RETRIES} for reminder ${schedule.id}`);
     }
   }
 
@@ -144,17 +164,9 @@ export class SchedulerService {
     const completed = await this.scheduleRepository.count({ where: { isCompleted: true } });
     const pending = await this.scheduleRepository.count({ where: { isCompleted: false } });
     const failed = await this.scheduleRepository.count({ 
-      where: { 
-        isCompleted: false, 
-        retryCount: Not(LessThanOrEqual(2)) // retryCount >= 3
-      } 
+      where: { isCompleted: false, retryCount: Not(LessThanOrEqual(2)) },
     });
 
-    return {
-      total,
-      completed,
-      pending,
-      failed,
-    };
+    return { total, completed, pending, failed };
   }
 }

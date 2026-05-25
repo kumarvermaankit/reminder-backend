@@ -274,15 +274,15 @@ Return JSON with:
 {
   "actionType": "create_reminder|save_note|get_note|save_password|get_password|unknown",
   "title": "brief title (for reminders)",
-  "description": "full description (for reminders)",
+  "description": "full description (for reminders)", 
   "reminderDate": "ISO datetime (for reminders)",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
-  "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
+  "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'. 'every 2 minutes'=2, 'every hour'=60, 'every 30 min'=30. OMIT this field if user does NOT specify a repeat interval.",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
   "clarificationQuestion": "if needed",
-  "noteKey": "title/keyword for the note (save_note/get_note only). For get_note: set this to the likely note title the user wants. If user just asks to 'list' or 'show all' notes, OMIT noteKey.",
+  "noteKey": "descriptive key for the note (save_note/get_note only, e.g. 'email', 'address')",
   "noteContent": "the content to save (save_note only)",
   "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
   "password": "the password to save (save_password only, NEVER include this for get_password)"

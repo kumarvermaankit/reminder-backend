@@ -13,8 +13,10 @@ export interface ParsedReminder {
   };
   intervalMinutes?: number;
   userName?: string;
+  // Notes
   noteKey?: string;
   noteContent?: string;
+  // Passwords
   serviceName?: string;
   password?: string;
   confidence: number;

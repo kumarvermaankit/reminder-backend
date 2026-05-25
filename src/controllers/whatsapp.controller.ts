@@ -276,6 +276,20 @@ export class WhatsappController {
         user.name = parsedReminder.userName;
       }
 
+      // Ambiguous reference check: user said something vague but context has a recent item
+      const vagueRefs = ['that', 'this', 'this one', 'that one', 'that note', 'this note', 'it', 'the first one', 'the second one'];
+      const isVague = parsedReminder.confidence < 0.5 && vagueRefs.some(r => message.toLowerCase().trim() === r || message.toLowerCase().trim().endsWith(r));
+      if (isVague) {
+        const latest = await this.userContextService.getLatest(user.id);
+        if (latest) {
+          const label = { reminder: 'reminder', note: 'note', password: 'password', todo: 'todo' }[latest.actionType] || 'item';
+          await this.whatsappService.sendMessage(userPhone,
+            `Are you referring to your ${label} "${latest.summary}"? If yes, please tell me what you'd like to do with it.`
+          );
+          return;
+        }
+      }
+
       // If it's not a reminder at all (very low confidence + needs clarification), respond conversationally
       const isCasualChat = parsedReminder.confidence < 0.3 && parsedReminder.needsClarification;
       this.logger.log(`isCasualChat=${isCasualChat}`);

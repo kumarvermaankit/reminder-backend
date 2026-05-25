@@ -270,6 +270,11 @@ First, determine the actionType:
 - "get_password" = user wants a saved password ("what's my facebook password?", "get gmail password")
 - "unknown" = casual chat, greeting, etc.
 
+CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transform, normalize, or change the words. Examples:
+- User says "square root decomposition" → noteKey = "square root decomposition" (NOT "square_root_decomposition")
+- User says "my email" → noteKey = "my email"
+- User says "sqrt decomposition" → noteKey = "sqrt decomposition"
+
 Return JSON with:
 {
   "actionType": "create_reminder|save_note|get_note|save_password|get_password|unknown",

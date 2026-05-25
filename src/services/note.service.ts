@@ -64,13 +64,24 @@ export class NoteService {
   }
 
   async searchNotes(userId: string, query: string): Promise<Note[]> {
+    const words = query
+      .replace(/[_\-]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (words.length === 0) return [];
+
+    const conditions = words.map((_, i) =>
+      `(note.title LIKE :word${i} OR note.content LIKE :word${i})`
+    ).join(' OR ');
+
+    const params: Record<string, string> = { userId };
+    words.forEach((w, i) => { params[`word${i}`] = `%${w}%`; });
+
     return await this.noteRepository
       .createQueryBuilder('note')
-      .where('note.userId = :userId', { userId })
-      .andWhere(
-        '(note.title LIKE :query OR note.content LIKE :query OR note.category LIKE :query)',
-        { query: `%${query}%` },
-      )
+      .where('note.userId = :userId', params)
+      .andWhere(`(${conditions})`)
       .orderBy('note.isPinned', 'DESC')
       .addOrderBy('note.createdAt', 'DESC')
       .getMany();

@@ -237,20 +237,14 @@ export class WhatsappController {
             if (notes.length > 0) {
               botResponse = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
             } else {
-              const all = await this.noteService.getAllNotesByUser(user.id);
-              if (all.length > 0) {
-                const titles = all.map(n => `• ${n.title}`).join('\n');
-                botResponse = `I couldn't find a note matching that. Here are your saved notes:\n${titles}\n\nTry asking for one by name!`;
-              } else {
-                botResponse = "You don't have any saved notes yet.";
-              }
+              botResponse = `I couldn't find a note matching "${parsed.noteKey}". Try asking with a different title — say "list my notes" to see what you have.`;
             }
           } else {
             const all = await this.noteService.getAllNotesByUser(user.id);
             if (all.length > 0) {
-              botResponse = `Here are your saved notes:\n${all.map(n => `• ${n.title}`).join('\n')}`;
+              botResponse = `Here are your notes:\n${all.map(n => `• ${n.title}`).join('\n')}\n\nAsk for one by name!`;
             } else {
-              botResponse = "You don't have any saved notes yet.";
+              botResponse = "You don't have any saved notes yet. Save one by saying 'remember that my email is xyz'.";
             }
           }
           break;

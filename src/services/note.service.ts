@@ -71,9 +71,16 @@ export class NoteService {
 
     if (words.length === 0) return [];
 
+    // Try exact title match first
+    const exact = await this.noteRepository.findOne({
+      where: { userId, title: query },
+    });
+    if (exact) return [exact];
+
+    // Then AND match — ALL words must appear in title or content
     const conditions = words.map((_, i) =>
       `(note.title LIKE :word${i} OR note.content LIKE :word${i})`
-    ).join(' OR ');
+    ).join(' AND ');
 
     const params: Record<string, string> = { userId };
     words.forEach((w, i) => { params[`word${i}`] = `%${w}%`; });

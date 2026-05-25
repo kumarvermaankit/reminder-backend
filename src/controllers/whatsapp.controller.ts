@@ -405,6 +405,7 @@ export class WhatsappController {
                 isCompleted: false,
                 isPersistent: !!parsed.intervalMinutes,
                 reminderInterval: parsed.intervalMinutes || 30,
+                maxReminderCount: parsed.maxReminderCount || 0,
                 reminderCount: 0,
                 metadata: {
                   category: parsed.category,

@@ -310,6 +310,7 @@ Return JSON with:
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
+  "maxReminderCount": "if user says 'for next X hours/minutes/times', calculate how many reminders that would be (intervalMinutes * count = duration). Example: every 5 min for 1 hour → maxReminderCount = 12. Leave 0 for unlimited.",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
   "clarificationQuestion": "if needed",
@@ -362,7 +363,7 @@ Rules:
     const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents`;
+Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -393,7 +394,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents` }
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount` }
       ],
       temperature: 0.3,
       max_tokens: 300

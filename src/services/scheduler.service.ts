@@ -124,12 +124,25 @@ export class SchedulerService {
   private async handlePersistentReminder(reminder: any): Promise<void> {
     const fresh = await this.reminderRepository.findOne({
       where: { id: reminder.id },
-      select: ['id', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval'],
+      select: ['id', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval', 'maxReminderCount'],
     });
     if (!fresh || fresh.isCompleted || !fresh.isPersistent) return;
 
+    const newCount = fresh.reminderCount + 1;
+
+    // Stop if maxReminderCount is set and reached
+    if (fresh.maxReminderCount > 0 && newCount >= fresh.maxReminderCount) {
+      await this.reminderRepository.update(reminder.id, {
+        reminderCount: newCount,
+        lastRemindedAt: new Date(),
+        isCompleted: true,
+      });
+      this.logger.log(`Persistent reminder ${reminder.id} reached max count ${fresh.maxReminderCount}, marking completed`);
+      return;
+    }
+
     await this.reminderRepository.update(reminder.id, {
-      reminderCount: fresh.reminderCount + 1,
+      reminderCount: newCount,
       lastRemindedAt: new Date(),
     });
 

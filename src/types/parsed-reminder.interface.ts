@@ -13,6 +13,7 @@ export interface ParsedReminder {
     interval?: number;
   };
   intervalMinutes?: number;
+  maxReminderCount?: number;
   userName?: string;
   // Notes
   noteKey?: string;

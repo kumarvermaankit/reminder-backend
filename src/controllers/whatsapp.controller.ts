@@ -8,6 +8,7 @@ import { ReminderService } from '../services/reminder.service';
 @Controller('whatsapp')
 export class WhatsappController {
   private readonly logger = new Logger(WhatsappController.name);
+  private readonly processedMessages = new Set<string>();
 
   constructor(
     private readonly whatsappService: WhatsappService,
@@ -62,10 +63,18 @@ export class WhatsappController {
 
     for (const message of messages) {
       if (message.type === 'text') {
-        const from = message.from; // User's phone number
+        const msgId = message.id;
+        if (this.processedMessages.has(msgId)) {
+          this.logger.log(`Duplicate message ${msgId} skipped`);
+          continue;
+        }
+        this.processedMessages.add(msgId);
+        // Clean up old entries after 5 min
+        setTimeout(() => this.processedMessages.delete(msgId), 300000);
+
+        const from = message.from;
         const text = message.text.body;
 
-        // Process the message
         await this.processWhatsAppMessage(from, text, phoneNumber);
       }
     }

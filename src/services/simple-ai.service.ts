@@ -201,18 +201,16 @@ export class SimpleAiService {
       return "I got you! I'll help set that reminder.";
     }
 
-    const inputWithWorkflows = `${userInput}\n\nSystem capabilities:\n${WORKFLOWS}`;
-
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.generateWithGroq(provider, inputWithWorkflows, reminder);
+          return await this.generateWithGroq(provider, userInput, reminder);
         case 'together':
-          return await this.generateWithTogether(provider, inputWithWorkflows, reminder);
+          return await this.generateWithTogether(provider, userInput, reminder);
         case 'replicate':
-          return await this.generateWithReplicate(provider, inputWithWorkflows, reminder);
+          return await this.generateWithReplicate(provider, userInput, reminder);
         case 'gemini':
-          return await this.generateWithGemini(provider, inputWithWorkflows, reminder);
+          return await this.generateWithGemini(provider, userInput, reminder);
         default:
           return this.getStaticResponse(userInput, reminder);
       }
@@ -415,11 +413,11 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: 'You are a friendly AI assistant. Be casual and use emojis.' },
+        { role: 'system', content: `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}` },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
-      max_tokens: 100
+      max_tokens: 200
     });
 
     return response.choices[0]?.message?.content || "I got you! I'll help set that reminder.";
@@ -432,7 +430,8 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
       ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
       : `User: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
 
-    const response = await model.generateContent(prompt);
+    const fullPrompt = `System capabilities:\n${WORKFLOWS}\n\n${prompt}`;
+    const response = await model.generateContent(fullPrompt);
     let content = response.response.text();
     
     // Remove markdown code blocks if present
@@ -451,11 +450,11 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: 'You are a friendly AI assistant. Be casual and use emojis.' },
+        { role: 'system', content: `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}` },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
-      max_tokens: 100
+      max_tokens: 200
     });
 
     return response.choices[0]?.message?.content || "I got you! I'll help set that reminder.";
@@ -466,10 +465,11 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
       ? `User said: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Generate a friendly confirmation response.`
       : `User said: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
 
+    const fullPrompt = `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}\n\n${prompt}`;
     const response = await provider.client.run(provider.models.response, {
       input: {
-        prompt: `You are a friendly AI assistant. Be casual and use emojis.\n\n${prompt}`,
-        max_tokens: 100,
+        prompt: fullPrompt,
+        max_tokens: 200,
         temperature: 0.8
       }
     });

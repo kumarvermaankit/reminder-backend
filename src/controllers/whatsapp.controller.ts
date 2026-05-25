@@ -397,11 +397,12 @@ export class WhatsappController {
           if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
             this.logger.log(`Creating reminder...`);
             try {
+              const reminderDate = parsed.reminderDate || new Date();
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,
                 description: parsed.description,
-                reminderDate: parsed.reminderDate,
+                reminderDate,
                 isCompleted: false,
                 isPersistent: !!parsed.intervalMinutes,
                 reminderInterval: parsed.intervalMinutes || 30,
@@ -414,8 +415,12 @@ export class WhatsappController {
                   source: 'whatsapp'
                 }
               });
-              const timeStr = this.formatRelativeTime(created.reminderDate);
-              botResponse = `✅ I'll remind you to "${created.title}" ${timeStr}!`;
+              const timeStr = this.formatRelativeTime(reminderDate);
+              const aiResponse = await this.aiService.generateBasicResponse(
+                `Reminder created: "${created.title}" at ${timeStr}, repeating every ${parsed.intervalMinutes || 30} min`,
+                parsed,
+              );
+              botResponse = aiResponse;
             } catch (e) {
               this.logger.error('Failed to save reminder:', e);
               botResponse = "I understood your reminder but had trouble saving it. Please try again!";

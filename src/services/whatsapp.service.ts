@@ -18,11 +18,11 @@ export class WhatsappService {
     }
   }
 
-  async sendMessage(to: string, message: string): Promise<boolean> {
+  async sendMessage(to: string, message: string): Promise<string | null> {
     try {
       if (!message || message.trim().length === 0) {
         this.logger.error(`Attempted to send empty/null message to ${to}. Stack: ${new Error().stack}`);
-        return false;
+        return null;
       }
 
       // Format phone number (remove + if present)
@@ -50,12 +50,13 @@ export class WhatsappService {
         }
       );
        
-      this.logger.log(`WhatsApp message sent to ${to}: ${response.data.messages?.[0]?.id}`);
-      return true;
+      const msgId = response.data.messages?.[0]?.id || null;
+      this.logger.log(`WhatsApp message sent to ${to}: ${msgId}`);
+      return msgId;
        
     } catch (error) {
       this.logger.error('Error sending WhatsApp message:', error.response?.data || error.message);
-      return false;
+      return null;
     }
   }
 

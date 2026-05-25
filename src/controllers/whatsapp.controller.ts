@@ -6,6 +6,7 @@ import { UserService } from '../services/user.service';
 import { ReminderService } from '../services/reminder.service';
 import { NoteService } from '../services/note.service';
 import { PasswordService } from '../services/password.service';
+import { UserContextService } from '../services/user-context.service';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -19,6 +20,7 @@ export class WhatsappController {
     private readonly reminderService: ReminderService,
     private readonly noteService: NoteService,
     private readonly passwordService: PasswordService,
+    private readonly userContextService: UserContextService,
   ) {}
 
   @Post('webhook')
@@ -78,13 +80,14 @@ export class WhatsappController {
 
         const from = message.from;
         const text = message.text.body;
+        const replyToMsgId = message.context?.id || null;
 
-        await this.processWhatsAppMessage(from, text, phoneNumber);
+        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId);
       }
     }
   }
 
-  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string) {
+  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string, replyToMsgId?: string) {
     try {
       this.logger.log(`Processing message from ${userPhone}: "${message}"`);
 
@@ -170,8 +173,26 @@ export class WhatsappController {
       const userReminders = await this.reminderService.getPendingRemindersForUser(user.id);
       this.logger.log(`User has ${userReminders.length} pending reminders`);
 
-      // Skip completion check if no pending reminders exist
+      // Context-aware completion: if user replied to a specific bot message, look it up
       let completionCheck: { completed: boolean; reminderId?: string; response?: string } = { completed: false, response: '' };
+
+      if (replyToMsgId) {
+        const contextEntry = await this.userContextService.findByMessageId(user.id, replyToMsgId);
+        if (contextEntry && contextEntry.actionType === 'reminder') {
+          const reminderStillPending = userReminders.find(r => r.id === contextEntry.entityId);
+          if (reminderStillPending) {
+            this.logger.log(`Reply-thread matched reminder: ${reminderStillPending.id}`);
+            completionCheck = {
+              completed: true,
+              reminderId: reminderStillPending.id,
+              response: `Got it! Marked "${reminderStillPending.title}" as done.`,
+            };
+          }
+        }
+      }
+
+      // Fallback: keyword match for "done" with context
+      if (!completionCheck.completed) {
 
       if (userReminders.length > 0) {
         // Simple keyword match for "done"
@@ -208,15 +229,38 @@ export class WhatsappController {
           completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
         }
       }
+      }
+
+      // If keyword match didn't find a reminder, check context for the latest completable item
+      if (!completionCheck.completed && userReminders.length > 0) {
+        const doneKeywords = ['done', 'im done', 'i am done', 'finished', 'complete', 'completed', 'stop', 'cancel'];
+        const isDoneRequest = doneKeywords.some(k => message.toLowerCase().trim() === k);
+        if (isDoneRequest) {
+          const latestReminder = await this.userContextService.getLatest(user.id, 'reminder');
+          if (latestReminder) {
+            const pending = userReminders.find(r => r.id === latestReminder.entityId);
+            if (pending) {
+              completionCheck = {
+                completed: true,
+                reminderId: pending.id,
+                response: `Got it! Marked "${pending.title}" as done.`,
+              };
+            }
+          }
+        }
+      }
       this.logger.log(`Completion check: completed=${completionCheck.completed}`);
 
       if (completionCheck.completed && completionCheck.reminderId) {
         this.logger.log(`Marking reminder ${completionCheck.reminderId} as completed`);
         await this.reminderService.markAsCompleted(completionCheck.reminderId);
         await this.reminderService.deleteReminder(completionCheck.reminderId);
-        // Also delete all future schedules to stop persistent reminders
         await this.reminderService.deleteAllSchedulesForReminder(completionCheck.reminderId);
-        await this.whatsappService.sendMessage(userPhone, completionCheck.response || "Got it! Marked as done.");
+        const reminder = userReminders.find(r => r.id === completionCheck.reminderId);
+        await this.replyWithContext(
+          userPhone, completionCheck.response || "Got it! Marked as done.",
+          user.id, 'reminder', completionCheck.reminderId, reminder?.title || 'reminder',
+        );
         return;
       }
 
@@ -248,8 +292,11 @@ export class WhatsappController {
 
       if (actionType === 'save_note' && parsedReminder.noteKey && parsedReminder.noteContent) {
         try {
-          await this.noteService.createNote(user.id, parsedReminder.noteKey, parsedReminder.noteContent);
-          await this.whatsappService.sendMessage(userPhone, `✅ Saved "${parsedReminder.noteKey}" for you!`);
+          const note = await this.noteService.createNote(user.id, parsedReminder.noteKey, parsedReminder.noteContent);
+          await this.replyWithContext(
+            userPhone, `✅ Saved "${parsedReminder.noteKey}" for you!`,
+            user.id, 'note', note.id, parsedReminder.noteKey,
+          );
         } catch (e) {
           this.logger.error('Failed to save note:', e);
           await this.whatsappService.sendMessage(userPhone, 'Sorry, I could not save that note.');
@@ -257,13 +304,24 @@ export class WhatsappController {
         return;
       }
 
-      if (actionType === 'get_note' && parsedReminder.noteKey) {
-        const notes = await this.noteService.searchNotes(user.id, parsedReminder.noteKey);
-        if (notes.length > 0) {
-          const msg = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
-          await this.whatsappService.sendMessage(userPhone, msg);
+      if (actionType === 'get_note') {
+        if (parsedReminder.noteKey) {
+          const notes = await this.noteService.searchNotes(user.id, parsedReminder.noteKey);
+          if (notes.length > 0) {
+            const msg = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
+            await this.whatsappService.sendMessage(userPhone, msg);
+            return;
+          }
+        }
+        const all = await this.noteService.getAllNotesByUser(user.id);
+        if (all.length > 0) {
+          const titles = all.map(n => `• ${n.title}`).join('\n');
+          await this.whatsappService.sendMessage(
+            userPhone,
+            `I couldn't find a note matching that. Here are your saved notes:\n${titles}\n\nTry asking for one by name!`
+          );
         } else {
-          await this.whatsappService.sendMessage(userPhone, `I don't have anything saved for "${parsedReminder.noteKey}".`);
+          await this.whatsappService.sendMessage(userPhone, "You don't have any saved notes yet.");
         }
         return;
       }
@@ -273,9 +331,8 @@ export class WhatsappController {
           const saved = await this.passwordService.savePassword(
             user.id, parsedReminder.serviceName, '', parsedReminder.password
           );
-          await this.whatsappService.sendMessage(
-            userPhone, `🔐 Saved password for *${parsedReminder.serviceName}* (${saved.createdAt.toLocaleString()})`
-          );
+          const text = `🔐 Saved password for *${parsedReminder.serviceName}* (${saved.createdAt.toLocaleString()})`;
+          await this.replyWithContext(userPhone, text, user.id, 'password', saved.id, parsedReminder.serviceName);
         } catch (e) {
           this.logger.error('Failed to save password:', e);
           await this.whatsappService.sendMessage(userPhone, 'Sorry, I could not save that password.');
@@ -322,7 +379,10 @@ export class WhatsappController {
           // Send confirmation with reminder details
           const timeStr = this.formatRelativeTime(createdReminder.reminderDate);
           const confirmationMessage = `${aiResponse}\n\nReminder Details:\nTitle: ${createdReminder.title}\nTime: ${timeStr}\n\nI'll remind you when it's time!`;
-          await this.whatsappService.sendMessage(userPhone, confirmationMessage);
+          await this.replyWithContext(
+            userPhone, confirmationMessage, user.id,
+            'reminder', createdReminder.id, createdReminder.title,
+          );
           this.logger.log('Confirmation sent to user');
         } catch (dbError) {
           this.logger.error(`Failed to save reminder to DB:`, dbError);
@@ -470,6 +530,23 @@ export class WhatsappController {
     };
     const loc = location.toLowerCase().trim();
     return cityMap[loc] || null;
+  }
+
+  private async replyWithContext(
+    userPhone: string, text: string,
+    userId: string, actionType: string, entityId: string, summary: string,
+  ): Promise<string | null> {
+    const msgId = await this.whatsappService.sendMessage(userPhone, text);
+    if (msgId) {
+      await this.userContextService.push(userId, {
+        actionType: actionType as any,
+        entityId,
+        summary,
+        messageId: msgId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return msgId;
   }
 
   private formatRelativeTime(date: Date): string {

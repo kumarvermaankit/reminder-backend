@@ -1,7 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 @Entity('notes')
-@Index(['userId', 'key'])
+@Index(['userId', 'title'])
 export class Note {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -10,11 +10,23 @@ export class Note {
   userId: string;
 
   @Column({ length: 255 })
-  key: string;
+  title: string;
 
   @Column({ type: 'text' })
   content: string;
 
+  @Column({ length: 100, default: 'general' })
+  category: string;
+
+  @Column('simple-array', { nullable: true })
+  tags: string[];
+
+  @Column({ default: false })
+  isPinned: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }

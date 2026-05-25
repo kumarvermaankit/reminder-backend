@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { User } from './user.entity';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('notes')
 export class Note {
@@ -8,10 +7,6 @@ export class Note {
 
   @Column({ name: 'user_id' })
   userId: string;
-
-  @ManyToOne(() => User, user => user.notes, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
-  user: User;
 
   @Column()
   title: string;

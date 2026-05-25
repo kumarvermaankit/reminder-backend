@@ -15,9 +15,14 @@ import { UserService } from './services/user.service';
 import { AiService } from './services/ai.service';
 import { SimpleAiService } from './services/simple-ai.service';
 import { McpAgentService } from './mcp/agent/mcp-agent.service';
+import { NoteService } from './services/note.service';
+import { PasswordService } from './services/password.service';
+import { EncryptionService } from './services/encryption.service';
 import { Reminder } from './entities/reminder.entity';
 import { ReminderSchedule } from './entities/reminder-schedule.entity';
 import { User } from './entities/user.entity';
+import { Note } from './entities/note.entity';
+import { Password } from './entities/password.entity';
 
 @Module({
   imports: [
@@ -33,11 +38,11 @@ import { User } from './entities/user.entity';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      entities: [Reminder, ReminderSchedule, User],
+      entities: [Reminder, ReminderSchedule, User, Note, Password],
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User])  ],
+    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password])  ],
   controllers: [AppController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService],
 })
 export class AppModule {}

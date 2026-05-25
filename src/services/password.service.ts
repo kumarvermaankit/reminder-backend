@@ -22,23 +22,8 @@ export class PasswordService {
     url?: string,
     notes?: string,
   ): Promise<Password> {
-    if (!service || !username || !password) {
-      throw new BadRequestException('Service, username, and password are required');
-    }
-
-    const existingPassword = await this.passwordRepository.findOne({
-      where: { userId, service: service.toLowerCase() },
-    });
-
-    if (existingPassword) {
-      return await this.updatePassword(
-        existingPassword.id,
-        userId,
-        password,
-        username,
-        url,
-        notes,
-      );
+    if (!service || !password) {
+      throw new BadRequestException('Service and password are required');
     }
 
     const encryptedPassword = this.encryptionService.encrypt(password);
@@ -46,7 +31,7 @@ export class PasswordService {
     const newPassword = this.passwordRepository.create({
       userId,
       service: service.toLowerCase(),
-      username,
+      username: username || '',
       encryptedPassword,
       url,
       notes,
@@ -72,17 +57,16 @@ export class PasswordService {
     return password;
   }
 
-  async getPasswordByService(userId: string, service: string): Promise<Password> {
-    const password = await this.passwordRepository.findOne({
+  async getPasswordsByService(userId: string, service: string): Promise<Password[]> {
+    const passwords = await this.passwordRepository.find({
       where: { userId, service: service.toLowerCase() },
+      order: { createdAt: 'DESC' },
     });
 
-    if (!password) {
-      throw new NotFoundException(`Password for service '${service}' not found`);
-    }
-
-    password.encryptedPassword = this.encryptionService.decrypt(password.encryptedPassword);
-    return password;
+    return passwords.map(p => {
+      p.encryptedPassword = this.encryptionService.decrypt(p.encryptedPassword);
+      return p;
+    });
   }
 
   async getAllPasswords(userId: string): Promise<Password[]> {

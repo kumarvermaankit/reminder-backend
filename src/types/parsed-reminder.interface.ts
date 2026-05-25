@@ -1,4 +1,7 @@
+export type ActionType = 'create_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'unknown';
+
 export interface ParsedReminder {
+  actionType?: ActionType;
   title: string;
   description: string;
   reminderDate: Date;
@@ -10,6 +13,10 @@ export interface ParsedReminder {
   };
   intervalMinutes?: number;
   userName?: string;
+  noteKey?: string;
+  noteContent?: string;
+  serviceName?: string;
+  password?: string;
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

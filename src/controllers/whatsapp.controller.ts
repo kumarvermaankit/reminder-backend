@@ -4,6 +4,8 @@ import { WhatsappService } from '../services/whatsapp.service';
 import { AiService } from '../services/ai.service';
 import { UserService } from '../services/user.service';
 import { ReminderService } from '../services/reminder.service';
+import { NoteService } from '../services/note.service';
+import { PasswordService } from '../services/password.service';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -15,6 +17,8 @@ export class WhatsappController {
     private readonly aiService: AiService,
     private readonly userService: UserService,
     private readonly reminderService: ReminderService,
+    private readonly noteService: NoteService,
+    private readonly passwordService: PasswordService,
   ) {}
 
   @Post('webhook')
@@ -238,7 +242,60 @@ export class WhatsappController {
         isCasualChat ? undefined : parsedReminder
       );
       this.logger.log(`AI response: "${aiResponse.substring(0, 100)}..."`);
-      
+
+      // Dispatch based on action type
+      const actionType = parsedReminder.actionType || 'create_reminder';
+
+      if (actionType === 'save_note' && parsedReminder.noteKey && parsedReminder.noteContent) {
+        try {
+          await this.noteService.createNote(user.id, parsedReminder.noteKey, parsedReminder.noteContent);
+          await this.whatsappService.sendMessage(userPhone, `✅ Saved "${parsedReminder.noteKey}" for you!`);
+        } catch (e) {
+          this.logger.error('Failed to save note:', e);
+          await this.whatsappService.sendMessage(userPhone, 'Sorry, I could not save that note.');
+        }
+        return;
+      }
+
+      if (actionType === 'get_note' && parsedReminder.noteKey) {
+        const notes = await this.noteService.searchNotes(user.id, parsedReminder.noteKey);
+        if (notes.length > 0) {
+          const msg = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
+          await this.whatsappService.sendMessage(userPhone, msg);
+        } else {
+          await this.whatsappService.sendMessage(userPhone, `I don't have anything saved for "${parsedReminder.noteKey}".`);
+        }
+        return;
+      }
+
+      if (actionType === 'save_password' && parsedReminder.serviceName && parsedReminder.password) {
+        try {
+          const saved = await this.passwordService.savePassword(
+            user.id, parsedReminder.serviceName, '', parsedReminder.password
+          );
+          await this.whatsappService.sendMessage(
+            userPhone, `🔐 Saved password for *${parsedReminder.serviceName}* (${saved.createdAt.toLocaleString()})`
+          );
+        } catch (e) {
+          this.logger.error('Failed to save password:', e);
+          await this.whatsappService.sendMessage(userPhone, 'Sorry, I could not save that password.');
+        }
+        return;
+      }
+
+      if (actionType === 'get_password' && parsedReminder.serviceName) {
+        const entries = await this.passwordService.getPasswordsByService(user.id, parsedReminder.serviceName);
+        if (entries.length > 0) {
+          const formatted = entries.map((e, i) =>
+            `*${i + 1}. ${e.service}* — saved ${e.createdAt.toLocaleString()}\nPassword: \`${e.encryptedPassword}\``
+          ).join('\n\n');
+          await this.whatsappService.sendMessage(userPhone, `🔑 Passwords for *${parsedReminder.serviceName}*:\n\n${formatted}`);
+        } else {
+          await this.whatsappService.sendMessage(userPhone, `I don't have any passwords saved for "${parsedReminder.serviceName}".`);
+        }
+        return;
+      }
+
       // Create reminder if confident enough and no clarification needed
       if (parsedReminder.confidence > 0.7 && !parsedReminder.needsClarification) {
         this.logger.log(`Confidence high enough. Creating reminder...`);

@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { User } from './user.entity';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('passwords')
 export class Password {
@@ -8,10 +7,6 @@ export class Password {
 
   @Column({ name: 'user_id' })
   userId: string;
-
-  @ManyToOne(() => User, user => user.passwords, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
-  user: User;
 
   @Column()
   service: string;

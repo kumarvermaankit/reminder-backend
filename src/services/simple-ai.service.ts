@@ -293,6 +293,10 @@ First, determine the actionType:
 
 Use the conversation history and pending reminders above to understand context. For "complete_reminder", the reminder ID MUST be a real ID from the pending reminders list — never invent one.
 
+CRITICAL for title: Use the EXACT words from the user for the title. Do NOT transform, capitalize, or rephrase. Examples:
+- "drink water" → title: "drink water" (NOT "Drinking Water" or "Drink Water")
+- "call mom" → title: "call mom" (NOT "Call Mom")
+
 CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transform, normalize, or change the words. Examples:
 - User says "square root decomposition" → noteKey = "square root decomposition" (NOT "square_root_decomposition")
 - User says "my email" → noteKey = "my email"
@@ -302,9 +306,9 @@ Return JSON with:
 {
   "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|unknown",
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
-  "title": "brief title (for create_reminder)",
+  "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime (for create_reminder)",
+  "reminderDate": "ISO datetime (for create_reminder). If interval is given but no start time, set to now + intervalMinutes.",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -322,11 +326,9 @@ Return JSON with:
 }
 
 Rules:
-- morning=9am, afternoon=2pm, evening=6pm, night=8pm
-- tomorrow/today=10am default
-- medicine=daily morning
-- Only ask if truly unclear
-- Be confident when you can infer`;
+- Do NOT ask for clarification about start time if intervalMinutes is set. The first reminder fires after one interval.
+- morning=9am, afternoon=2pm, evening=6pm, night=8pm;
+- Use EXACT user words for title — no transformations`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,

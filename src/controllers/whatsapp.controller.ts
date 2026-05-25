@@ -397,7 +397,12 @@ export class WhatsappController {
           if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
             this.logger.log(`Creating reminder...`);
             try {
-              const reminderDate = parsed.reminderDate || new Date();
+              // If no start date but recurring, first reminder fires after one interval
+              const reminderDate = parsed.reminderDate
+                ? new Date(parsed.reminderDate)
+                : parsed.intervalMinutes
+                  ? new Date(Date.now() + parsed.intervalMinutes * 60 * 1000)
+                  : new Date(Date.now() + 10 * 60 * 1000);
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,

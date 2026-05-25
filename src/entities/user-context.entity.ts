@@ -1,11 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-export interface ContextEntry {
-  actionType: 'reminder' | 'note' | 'password' | 'todo';
-  entityId: string;
-  summary: string;
-  messageId: string;
-  timestamp: string;
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
 }
 
 @Entity('user_contexts')
@@ -17,7 +14,7 @@ export class UserContextEntity {
   userId: string;
 
   @Column('simple-json')
-  recentItems: ContextEntry[];
+  conversation: ChatMessage[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

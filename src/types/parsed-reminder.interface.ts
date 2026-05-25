@@ -1,7 +1,8 @@
-export type ActionType = 'create_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'unknown';
+export type ActionType = 'create_reminder' | 'complete_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'unknown';
 
 export interface ParsedReminder {
   actionType?: ActionType;
+  reminderId?: string;
   title: string;
   description: string;
   reminderDate: Date;

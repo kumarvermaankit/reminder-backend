@@ -258,21 +258,34 @@ export class SimpleAiService {
   // Provider-specific methods
   private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` (${timezone})` : '';
-    const prompt = `Parse this reminder request: "${userInput}"
+    const prompt = `Parse this user message: "${userInput}"
     
 Current date: ${new Date().toISOString()}${tzInfo}
 
+First, determine the actionType:
+- "create_reminder" = user wants a reminder for something
+- "save_note" = user wants to save information ("save that my email is X", "remember my address is Y", "note this down")
+- "get_note" = user wants to retrieve saved info ("what's my email?", "get my saved address")
+- "save_password" = user wants to save a password for a service ("save my facebook password as abc123", "store password for gmail as mypass")
+- "get_password" = user wants a saved password ("what's my facebook password?", "get gmail password")
+- "unknown" = casual chat, greeting, etc.
+
 Return JSON with:
 {
-  "title": "brief title",
-  "description": "full description", 
-  "reminderDate": "ISO datetime",
+  "actionType": "create_reminder|save_note|get_note|save_password|get_password|unknown",
+  "title": "brief title (for reminders)",
+  "description": "full description (for reminders)", 
+  "reminderDate": "ISO datetime (for reminders)",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'. 'every 2 minutes'=2, 'every hour'=60, 'every 30 min'=30. OMIT this field if user does NOT specify a repeat interval.",
   "confidence": 0.0-1.0,
   "needsClarification": true/false,
-  "clarificationQuestion": "if needed"
+  "clarificationQuestion": "if needed",
+  "noteKey": "descriptive key for the note (save_note/get_note only, e.g. 'email', 'address')",
+  "noteContent": "the content to save (save_note only)",
+  "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
+  "password": "the password to save (save_password only, NEVER include this for get_password)"
 }
 
 Rules:
@@ -312,10 +325,10 @@ Rules:
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
     const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
     
-    const prompt = `Parse reminder: "${userInput}"
+    const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
-
-Return JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+Determine actionType: create_reminder, save_note, get_note, save_password, get_password, unknown.
+Return JSON with actionType, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -345,8 +358,8 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are a reminder assistant. Return valid JSON.' },
-        { role: 'user', content: `Parse this reminder: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}` }
+        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, save_note, get_note, save_password, get_password, unknown. Return valid JSON.' },
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -364,11 +377,11 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
 
   private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
-    const prompt = `Parse this reminder: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nReturn JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+    const prompt = `Parse: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nDetermine actionType: create_reminder, save_note, get_note, save_password, get_password, unknown. Return JSON with actionType, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password`;
     
     const response = await provider.client.run(provider.models.parsing, {
       input: {
-        prompt: `You are a reminder assistant. Return valid JSON.\n\n${prompt}`,
+        prompt: `You are an intent detection assistant. Return valid JSON.\n\n${prompt}`,
         max_tokens: 300,
         temperature: 0.3
       }

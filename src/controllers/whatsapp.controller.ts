@@ -271,7 +271,15 @@ export class WhatsappController {
           if (parsed.todoListTitle) {
             try {
               const list = await this.todoListService.createList(user.id, parsed.todoListTitle);
-              botResponse = `📋 Created a new list "${parsed.todoListTitle}"! Add items by saying "add ... to ${parsed.todoListTitle}".`;
+              const items = parsed.todoItemContents || [];
+              if (items.length > 0) {
+                for (const item of items) {
+                  await this.todoListService.addItem(list.id, user.id, item);
+                }
+                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!`;
+              } else {
+                botResponse = `📋 Created a new list "${parsed.todoListTitle}"! Add items by saying "add ... to ${parsed.todoListTitle}".`;
+              }
             } catch (e) {
               this.logger.error('Failed to create todo list:', e);
               botResponse = 'Sorry, I could not create that list.';
@@ -284,15 +292,18 @@ export class WhatsappController {
 
         case 'add_todo_item': {
           const listTitle = parsed.todoListTitle || 'general';
-          const itemContent = parsed.todoItemContent || parsed.noteKey;
-          if (itemContent) {
+          const items = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : parsed.noteKey ? [parsed.noteKey] : []);
+          if (items.length > 0) {
             try {
               let list = await this.todoListService.findListByTitle(user.id, listTitle);
               if (!list) {
                 list = await this.todoListService.createList(user.id, listTitle);
               }
-              await this.todoListService.addItem(list.id, user.id, itemContent);
-              botResponse = `✅ Added "${itemContent}" to ${listTitle} list!`;
+              for (const item of items) {
+                await this.todoListService.addItem(list.id, user.id, item);
+              }
+              const label = items.length === 1 ? items[0] : `${items.length} items`;
+              botResponse = `✅ Added "${label}" to ${listTitle} list!`;
             } catch (e) {
               this.logger.error('Failed to add todo item:', e);
               botResponse = 'Sorry, I could not add that item.';
@@ -329,21 +340,27 @@ export class WhatsappController {
 
         case 'complete_todo_item': {
           const listTitle = parsed.todoListTitle || 'general';
-          const itemContent = parsed.todoItemContent || parsed.noteKey;
-          if (itemContent) {
+          const items = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : parsed.noteKey ? [parsed.noteKey] : []);
+          if (items.length > 0) {
             try {
               const list = await this.todoListService.findListByTitle(user.id, listTitle);
               if (list) {
-                const items = await this.todoListService.getItems(list.id, user.id);
-                const pending = items.filter(i => !i.isCompleted);
-                const match = pending.find(i =>
-                  i.content.toLowerCase().includes(itemContent.toLowerCase())
-                );
-                if (match) {
-                  await this.todoListService.completeItem(match.id, user.id);
-                  botResponse = `✅ Marked "${match.content}" as done!`;
+                const allItems = await this.todoListService.getItems(list.id, user.id);
+                const pending = allItems.filter(i => !i.isCompleted);
+                let doneCount = 0;
+                for (const target of items) {
+                  const match = pending.find(i =>
+                    i.content.toLowerCase().includes(target.toLowerCase())
+                  );
+                  if (match) {
+                    await this.todoListService.completeItem(match.id, user.id);
+                    doneCount++;
+                  }
+                }
+                if (doneCount > 0) {
+                  botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
                 } else {
-                  botResponse = `I couldn't find "${itemContent}" in the ${listTitle} list.`;
+                  botResponse = `I couldn't find those items in the ${listTitle} list.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${listTitle}".`;

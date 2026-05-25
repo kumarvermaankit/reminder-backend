@@ -177,8 +177,6 @@ export class SimpleAiService {
           return await this.parseWithGroq(provider, fullPrompt, timezone);
         case 'together':
           return await this.parseWithTogether(provider, fullPrompt, timezone);
-        case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, timezone);
         case 'gemini':
           return await this.parseWithGemini(provider, fullPrompt, timezone);
         default:
@@ -284,8 +282,8 @@ First, determine the actionType:
 - "get_note" = user wants to retrieve saved info
 - "save_password" = user wants to save a password
 - "get_password" = user wants a saved password
-- "create_todo" = user wants to create a new todo/list ("start a shopping list", "create a grocery list", "make a todo list for work")
-- "add_todo_item" = user wants to add an item to a list ("add milk to shopping list", "add buy eggs to groceries")
+- "create_todo" = user wants to create a new todo/list ("start a shopping list", "create a grocery list", "make a todo list for work"). If the user provides items (numbered, bulleted, or comma-separated), set them in todoItemContents.
+- "add_todo_item" = user wants to add items to a list ("add milk to shopping list", "add buy eggs to groceries"). If multiple items are given (comma-separated, "and" separated, or sequential), put them all in todoItemContents.
 - "get_todo" = user wants to see a list ("show my shopping list", "what's on my todo list")
 - "complete_todo_item" = user wants to mark a todo item as done ("done with milk", "check off eggs from shopping list")
 - "unknown" = casual chat, greeting, or question not related to any action
@@ -314,8 +312,9 @@ Return JSON with:
   "noteContent": "the content to save (save_note only)",
   "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
   "password": "the password to save (save_password only, NEVER include this for get_password)",
-  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item only)",
-  "todoItemContent": "content of the item to add (add_todo_item only)"
+  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item/complete_todo_item only)",
+  "todoItemContent": "a single item to add (add_todo_item only, use this when there's ONE item)",
+  "todoItemContents": "an array of items when the user gives MULTIPLE items (add_todo_item/create_todo only, e.g. ['walk', 'need to work on merger task', 'need to review PR'])"
 }
 
 Rules:
@@ -358,7 +357,7 @@ Rules:
     const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent`;
+Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -389,46 +388,21 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent` }
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents` }
       ],
       temperature: 0.3,
       max_tokens: 300
     });
 
     const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
-    
-    if (parsed.reminderDate) {
-      parsed.reminderDate = new Date(parsed.reminderDate);
-    }
-    
-    return parsed;
-  }
-
-  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
-    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
-    const prompt = `Parse: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nDetermine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent`;
-    
-    const response = await provider.client.run(provider.models.parsing, {
-      input: {
-        prompt: `You are an intent detection assistant. Return valid JSON.\n\n${prompt}`,
-        max_tokens: 300,
-        temperature: 0.3
-      }
-    });
-
-    const content = response.join('');
-    const parsed = JSON.parse(content);
-    
-    if (parsed.reminderDate) {
-      parsed.reminderDate = new Date(parsed.reminderDate);
-    }
-    
+    if (parsed.reminderDate) parsed.reminderDate = new Date(parsed.reminderDate);
     return parsed;
   }
 
   private async generateWithGroq(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
+    const prompt = reminder
       ? `User said: "${userInput}"\nI understood this as a reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}\nGenerate a friendly, casual confirmation response.`
       : `User said: "${userInput}"\nThis doesn't seem like a reminder. Just respond conversationally and naturally without mentioning reminders.`;
 

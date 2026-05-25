@@ -23,6 +23,7 @@ export interface ParsedReminder {
   // Todo lists
   todoListTitle?: string;
   todoItemContent?: string;
+  todoItemContents?: string[];
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

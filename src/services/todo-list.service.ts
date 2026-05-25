@@ -40,10 +40,13 @@ export class TodoListService {
   }
 
   async findListByTitle(userId: string, title: string): Promise<TodoList | null> {
-    return this.listRepo.findOne({
-      where: { userId, title },
-      relations: ['items'],
-    });
+    const list = await this.listRepo
+      .createQueryBuilder('list')
+      .leftJoinAndSelect('list.items', 'items')
+      .where('list.userId = :userId', { userId })
+      .andWhere('LOWER(list.title) = LOWER(:title)', { title })
+      .getOne();
+    return list || null;
   }
 
   async addItem(listId: string, userId: string, content: string): Promise<TodoItem> {

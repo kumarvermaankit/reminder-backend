@@ -8,8 +8,14 @@ export class AiService {
 
   constructor(private readonly simpleAiService: SimpleAiService) {}
 
-  async parseReminderInput(userInput: string, userId?: string, timezone?: string): Promise<ParsedReminder> {
-    return await this.simpleAiService.parseReminderInput(userInput, userId, timezone);
+  async parseReminderInput(
+    userInput: string,
+    userId?: string,
+    timezone?: string,
+    conversation?: { role: string; text: string }[],
+    pendingReminders?: { id: string; title: string }[],
+  ): Promise<ParsedReminder> {
+    return await this.simpleAiService.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders);
   }
 
   async generateBasicResponse(userInput: string, reminder?: ParsedReminder): Promise<string> {

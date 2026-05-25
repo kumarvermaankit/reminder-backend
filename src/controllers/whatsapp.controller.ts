@@ -5,7 +5,8 @@ import { AiService } from '../services/ai.service';
 import { UserService } from '../services/user.service';
 import { ReminderService } from '../services/reminder.service';
 import { NoteService } from '../services/note.service';
-import { PasswordVaultService } from '../services/password-vault.service';
+import { PasswordService } from '../services/password.service';
+import { UserContextService } from '../services/user-context.service';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -18,7 +19,8 @@ export class WhatsappController {
     private readonly userService: UserService,
     private readonly reminderService: ReminderService,
     private readonly noteService: NoteService,
-    private readonly passwordVaultService: PasswordVaultService,
+    private readonly passwordService: PasswordService,
+    private readonly userContextService: UserContextService,
   ) {}
 
   @Post('webhook')
@@ -78,17 +80,17 @@ export class WhatsappController {
 
         const from = message.from;
         const text = message.text.body;
+        const replyToMsgId = message.context?.id || null;
 
-        await this.processWhatsAppMessage(from, text, phoneNumber);
+        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId);
       }
     }
   }
 
-  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string) {
+  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string, replyToMsgId?: string) {
     try {
       this.logger.log(`Processing message from ${userPhone}: "${message}"`);
 
-      // Find or create user
       let user = await this.userService.getUserByPhone(userPhone);
       
       if (!user) {
@@ -106,13 +108,17 @@ export class WhatsappController {
         this.logger.log(`Found existing user ${user.id}`);
       }
 
+      // Push user message to conversation history
+      await this.userContextService.pushMessage(user.id, 'user', message);
+
       // Onboarding: check if user hasn't set their name yet
       const greetings = ['hi', 'hello', 'hey', 'hii', 'heyy', 'start'];
       const isGreeting = greetings.includes(message.toLowerCase().trim());
 
       if (user.name === 'there' && isGreeting) {
-        await this.whatsappService.sendMessage(userPhone, 
-          `Hi there! 👋 I'm your Reminder Assistant.\n\nTo get started, could you tell me your name and which city you're in?\n\nFor example: "I'm John from Mumbai"`);
+        const botMsg = `Hi there! 👋 I'm your Reminder Assistant.\n\nTo get started, could you tell me your name and which city you're in?\n\nFor example: "I'm John from Mumbai"`;
+        await this.whatsappService.sendMessage(userPhone, botMsg);
+        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
       }
 
@@ -124,16 +130,17 @@ export class WhatsappController {
         await this.userService.updateUser(user.id, { name: newName });
         user.name = newName;
 
-        // Try to derive timezone from location
         const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
         if (tz) {
           await this.userService.updateUser(user.id, { timezone: tz });
           user.timezone = tz;
-          await this.whatsappService.sendMessage(userPhone, 
-            `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`);
+          const botMsg = `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         } else {
-          await this.whatsappService.sendMessage(userPhone, 
-            `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`);
+          const botMsg = `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         }
         return;
       }
@@ -144,8 +151,9 @@ export class WhatsappController {
         const newName = nameMatch[1];
         await this.userService.updateUser(user.id, { name: newName });
         user.name = newName;
-        await this.whatsappService.sendMessage(userPhone, 
-          `Nice to meet you, ${newName}! 🎉 Also, which city are you in so I can set the right time for your reminders?`);
+        const botMsg = `Nice to meet you, ${newName}! 🎉 Also, which city are you in so I can set the right time for your reminders?`;
+        await this.whatsappService.sendMessage(userPhone, botMsg);
+        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
       }
 
@@ -157,177 +165,171 @@ export class WhatsappController {
         if (validTz) {
           await this.userService.updateUser(user.id, { timezone: validTz });
           user.timezone = validTz;
-          await this.whatsappService.sendMessage(userPhone, `Got it! Your timezone is set to ${validTz}.`);
+          const botMsg = `Got it! Your timezone is set to ${validTz}.`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         } else {
-          await this.whatsappService.sendMessage(userPhone, `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`);
+          const botMsg = `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         }
       }
 
-      // Check if user is talking about completing a task
-      this.logger.log('Checking for task completion...');
-      const userReminders = await this.reminderService.getPendingRemindersForUser(user.id);
-      this.logger.log(`User has ${userReminders.length} pending reminders`);
+      // Get conversation history and pending reminders for AI context
+      const conversation = await this.userContextService.getConversation(user.id);
+      const pendingReminders = await this.reminderService.getPendingRemindersForUser(user.id);
+      this.logger.log(`User has ${pendingReminders.length} pending reminders`);
 
-      // Skip completion check if no pending reminders exist
-      let completionCheck: { completed: boolean; reminderId?: string; response?: string } = { completed: false, response: '' };
-
-      if (userReminders.length > 0) {
-        // Simple keyword match for "done"
-        const doneKeywords = ['done', 'im done', 'i am done', 'finished', 'complete', 'completed', 'stop', 'cancel'];
-        const isDoneRequest = doneKeywords.some(k => message.toLowerCase().trim() === k);
-
-        if (isDoneRequest && userReminders.length === 1) {
-          this.logger.log(`Simple keyword match - marking single reminder as done`);
-          completionCheck = {
-            completed: true,
-            reminderId: userReminders[0].id,
-            response: "Got it! Marked as done.",
-          };
-        } else if (isDoneRequest && userReminders.length > 1 && user.lastReminderIds?.length) {
-          // Match most recently sent reminder from lastReminderIds that is still pending
-          const toComplete = user.lastReminderIds.find(id => userReminders.some(r => r.id === id));
-          if (toComplete) {
-            this.logger.log(`Matched from lastReminderIds: ${toComplete}`);
-            completionCheck = {
-              completed: true,
-              reminderId: toComplete,
-              response: "Got it! Marked as done.",
-            };
-          }
-        } else if (isDoneRequest && userReminders.length > 1) {
-          const last = userReminders[userReminders.length - 1];
-          this.logger.log(`Falling back to last reminder: ${last.id}`);
-          completionCheck = {
-            completed: true,
-            reminderId: last.id,
-            response: `Got it! Marked "${last.title}" as done.`,
-          };
-        } else {
-          completionCheck = await this.aiService.detectTaskCompletion(message, userReminders);
-        }
-      }
-      this.logger.log(`Completion check: completed=${completionCheck.completed}`);
-
-      if (completionCheck.completed && completionCheck.reminderId) {
-        this.logger.log(`Marking reminder ${completionCheck.reminderId} as completed`);
-        await this.reminderService.markAsCompleted(completionCheck.reminderId);
-        await this.reminderService.deleteReminder(completionCheck.reminderId);
-        // Also delete all future schedules to stop persistent reminders
-        await this.reminderService.deleteAllSchedulesForReminder(completionCheck.reminderId);
-        await this.whatsappService.sendMessage(userPhone, completionCheck.response || "Got it! Marked as done.");
-        return;
-      }
-
-      // Try to parse as a reminder
-      this.logger.log('Parsing message as reminder via AI...');
-      const parsedReminder = await this.aiService.parseReminderInput(message, user.id, user.timezone);
-      this.logger.log(`AI parsed: title="${parsedReminder.title}", confidence=${parsedReminder.confidence}, needsClarification=${parsedReminder.needsClarification}, intervalMinutes=${parsedReminder.intervalMinutes}`);
+      // Parse message via AI with full context
+      this.logger.log('Parsing message via AI...');
+      const parsed = await this.aiService.parseReminderInput(
+        message, user.id, user.timezone, conversation, pendingReminders,
+      );
+      this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}`);
 
       // Save user's name if AI extracted one
-      if (parsedReminder.userName && (user.name === 'there' || user.name.startsWith('WhatsApp User'))) {
-        this.logger.log(`Updating user name to "${parsedReminder.userName}"`);
-        await this.userService.updateUser(user.id, { name: parsedReminder.userName });
-        user.name = parsedReminder.userName;
+      if (parsed.userName && (user.name === 'there' || user.name.startsWith('WhatsApp User'))) {
+        this.logger.log(`Updating user name to "${parsed.userName}"`);
+        await this.userService.updateUser(user.id, { name: parsed.userName });
+        user.name = parsed.userName;
       }
-
-      // If it's not a reminder at all (very low confidence + needs clarification), respond conversationally
-      const isCasualChat = parsedReminder.confidence < 0.3 && parsedReminder.needsClarification;
-      this.logger.log(`isCasualChat=${isCasualChat}`);
-      
-      // Generate AI response
-      const aiResponse = await this.aiService.generateBasicResponse(
-        message, 
-        isCasualChat ? undefined : parsedReminder
-      );
-      this.logger.log(`AI response: "${aiResponse.substring(0, 100)}..."`);
 
       // Dispatch based on action type
-      const actionType = parsedReminder.actionType || 'create_reminder';
+      let botResponse: string;
 
-      if (actionType === 'save_note' && parsedReminder.noteKey && parsedReminder.noteContent) {
-        await this.noteService.saveNote(user.id, parsedReminder.noteKey, parsedReminder.noteContent);
-        await this.whatsappService.sendMessage(userPhone, `✅ Saved "${parsedReminder.noteKey}" for you!`);
-        return;
-      }
-
-      if (actionType === 'get_note' && parsedReminder.noteKey) {
-        const note = await this.noteService.getNote(user.id, parsedReminder.noteKey);
-        if (note) {
-          await this.whatsappService.sendMessage(userPhone, `📝 *${note.key}*:\n${note.content}`);
-        } else {
-          const similar = await this.noteService.searchNotes(user.id, parsedReminder.noteKey);
-          if (similar.length > 0) {
-            const suggestions = similar.map(n => `• ${n.key}`).join('\n');
-            await this.whatsappService.sendMessage(userPhone, `Couldn't find "${parsedReminder.noteKey}". Did you mean one of these?\n${suggestions}`);
+      switch (parsed.actionType) {
+        case 'complete_reminder': {
+          if (parsed.reminderId && pendingReminders.some(r => r.id === parsed.reminderId)) {
+            this.logger.log(`AI matched reminder ID ${parsed.reminderId} for completion`);
+            const reminder = pendingReminders.find(r => r.id === parsed.reminderId);
+            await this.reminderService.markAsCompleted(parsed.reminderId);
+            await this.reminderService.deleteReminder(parsed.reminderId);
+            await this.reminderService.deleteAllSchedulesForReminder(parsed.reminderId);
+            botResponse = `✅ Marked "${reminder.title}" as done!`;
           } else {
-            await this.whatsappService.sendMessage(userPhone, `I don't have anything saved for "${parsedReminder.noteKey}".`);
+            botResponse = "I'm not sure which reminder you're referring to. Please tell me the name of the reminder you'd like to mark as done.";
+          }
+          break;
+        }
+
+        case 'save_note': {
+          if (parsed.noteKey && parsed.noteContent) {
+            try {
+              const note = await this.noteService.createNote(user.id, parsed.noteKey, parsed.noteContent);
+              botResponse = `✅ Saved "${parsed.noteKey}" for you!`;
+            } catch (e) {
+              this.logger.error('Failed to save note:', e);
+              botResponse = 'Sorry, I could not save that note.';
+            }
+          } else {
+            botResponse = "What would you like me to save? Tell me a title and some content.";
+          }
+          break;
+        }
+
+        case 'get_note': {
+          if (parsed.noteKey) {
+            const notes = await this.noteService.searchNotes(user.id, parsed.noteKey);
+            if (notes.length > 0) {
+              botResponse = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
+            } else {
+              const all = await this.noteService.getAllNotesByUser(user.id);
+              if (all.length > 0) {
+                const titles = all.map(n => `• ${n.title}`).join('\n');
+                botResponse = `I couldn't find a note matching that. Here are your saved notes:\n${titles}\n\nTry asking for one by name!`;
+              } else {
+                botResponse = "You don't have any saved notes yet.";
+              }
+            }
+          } else {
+            const all = await this.noteService.getAllNotesByUser(user.id);
+            if (all.length > 0) {
+              botResponse = `Here are your saved notes:\n${all.map(n => `• ${n.title}`).join('\n')}`;
+            } else {
+              botResponse = "You don't have any saved notes yet.";
+            }
+          }
+          break;
+        }
+
+        case 'save_password': {
+          if (parsed.serviceName && parsed.password) {
+            try {
+              const saved = await this.passwordService.savePassword(
+                user.id, parsed.serviceName, '', parsed.password
+              );
+              botResponse = `🔐 Saved password for *${parsed.serviceName}* (${saved.createdAt.toLocaleString()})`;
+            } catch (e) {
+              this.logger.error('Failed to save password:', e);
+              botResponse = 'Sorry, I could not save that password.';
+            }
+          } else {
+            botResponse = "Please tell me the service name and password you'd like to save. For example: 'save my facebook password as abc123'";
+          }
+          break;
+        }
+
+        case 'get_password': {
+          if (parsed.serviceName) {
+            const entries = await this.passwordService.getPasswordsByService(user.id, parsed.serviceName);
+            if (entries.length > 0) {
+              botResponse = entries.map((e, i) =>
+                `*${i + 1}. ${e.service}* — saved ${e.createdAt.toLocaleString()}\nPassword: \`${e.encryptedPassword}\``
+              ).join('\n\n');
+              botResponse = `🔑 Passwords for *${parsed.serviceName}*:\n\n${botResponse}`;
+            } else {
+              botResponse = `I don't have any passwords saved for "${parsed.serviceName}".`;
+            }
+          } else {
+            botResponse = "Which service's password would you like to retrieve?";
+          }
+          break;
+        }
+
+        default: {
+          // create_reminder or unknown
+          if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
+            this.logger.log(`Creating reminder...`);
+            try {
+              const created = await this.reminderService.createReminder({
+                userId: user.id,
+                title: parsed.title,
+                description: parsed.description,
+                reminderDate: parsed.reminderDate,
+                isCompleted: false,
+                isPersistent: !!parsed.intervalMinutes,
+                reminderInterval: parsed.intervalMinutes || 30,
+                reminderCount: 0,
+                metadata: {
+                  category: parsed.category,
+                  priority: parsed.priority,
+                  recurring: parsed.recurring,
+                  source: 'whatsapp'
+                }
+              });
+              const timeStr = this.formatRelativeTime(created.reminderDate);
+              botResponse = `✅ I'll remind you to "${created.title}" ${timeStr}!`;
+            } catch (e) {
+              this.logger.error('Failed to save reminder:', e);
+              botResponse = "I understood your reminder but had trouble saving it. Please try again!";
+            }
+          } else if (parsed.needsClarification && parsed.clarificationQuestion) {
+            botResponse = parsed.clarificationQuestion;
+          } else {
+            const aiResponse = await this.aiService.generateBasicResponse(message, parsed.confidence > 0.3 ? parsed : undefined);
+            botResponse = aiResponse;
           }
         }
-        return;
       }
 
-      if (actionType === 'save_password' && parsedReminder.serviceName && parsedReminder.password) {
-        const saved = await this.passwordVaultService.savePassword(user.id, parsedReminder.serviceName, parsedReminder.password);
-        const timeStr = saved.createdAt.toLocaleString();
-        await this.whatsappService.sendMessage(userPhone, `🔐 Saved password for *${parsedReminder.serviceName}* (${timeStr})`);
-        return;
-      }
-
-      if (actionType === 'get_password' && parsedReminder.serviceName) {
-        const entries = await this.passwordVaultService.getPasswords(user.id, parsedReminder.serviceName);
-        if (entries.length > 0) {
-          const formatted = entries.map((e, i) =>
-            `*${i + 1}. ${e.serviceName}* — saved ${e.createdAt.toLocaleString()}\nPassword: \`${e.password}\``
-          ).join('\n\n');
-          await this.whatsappService.sendMessage(userPhone, `🔑 Passwords for *${parsedReminder.serviceName}*:\n\n${formatted}`);
-        } else {
-          await this.whatsappService.sendMessage(userPhone, `I don't have any passwords saved for "${parsedReminder.serviceName}".`);
-        }
-        return;
-      }
-
-      // Create reminder if confident enough and no clarification needed
-      if (parsedReminder.confidence > 0.7 && !parsedReminder.needsClarification) {
-        this.logger.log(`Confidence high enough. Creating reminder...`);
-        
-        try {
-          const createdReminder = await this.reminderService.createReminder({
-            userId: user.id,
-            title: parsedReminder.title,
-            description: parsedReminder.description,
-            reminderDate: parsedReminder.reminderDate,
-            isCompleted: false,
-            isPersistent: !!parsedReminder.intervalMinutes,
-            reminderInterval: parsedReminder.intervalMinutes || 30,
-            reminderCount: 0,
-            metadata: {
-              category: parsedReminder.category,
-              priority: parsedReminder.priority,
-              recurring: parsedReminder.recurring,
-              source: 'whatsapp'
-            }
-          });
-          this.logger.log(`Reminder saved to DB with id=${createdReminder.id}, title="${createdReminder.title}", date=${createdReminder.reminderDate}`);
-
-          // Send confirmation with reminder details
-          const timeStr = this.formatRelativeTime(createdReminder.reminderDate);
-          const confirmationMessage = `${aiResponse}\n\nReminder Details:\nTitle: ${createdReminder.title}\nTime: ${timeStr}\n\nI'll remind you when it's time!`;
-          await this.whatsappService.sendMessage(userPhone, confirmationMessage);
-          this.logger.log('Confirmation sent to user');
-        } catch (dbError) {
-          this.logger.error(`Failed to save reminder to DB:`, dbError);
-          await this.whatsappService.sendMessage(userPhone, "I understood your reminder but had trouble saving it. Please try again!");
-        }
-      } else {
-        this.logger.log(`Confidence too low (${parsedReminder.confidence}) or needs clarification - not creating reminder`);
-        await this.whatsappService.sendMessage(userPhone, aiResponse);
-      }
+      // Send bot response and push to conversation history
+      await this.whatsappService.sendMessage(userPhone, botResponse);
+      await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
 
     } catch (error) {
       this.logger.error('Error processing WhatsApp message:', error);
-      // Send error message to user
       await this.whatsappService.sendMessage(userPhone, "Sorry, I had trouble processing that. Please try again!");
     }
   }

@@ -280,10 +280,14 @@ Current date: ${new Date().toISOString()}${tzInfo}
 First, determine the actionType:
 - "create_reminder" = user wants a new reminder for something
 - "complete_reminder" = user wants to mark a reminder as done/finished/completed (check conversation history and pending reminders list to find which one)
-- "save_note" = user wants to save information
+- "save_note" = user wants to save information/reference data ("remember my email is xyz", "save that my address is 123 street")
 - "get_note" = user wants to retrieve saved info
 - "save_password" = user wants to save a password
 - "get_password" = user wants a saved password
+- "create_todo" = user wants to create a new todo/list ("start a shopping list", "create a grocery list", "make a todo list for work")
+- "add_todo_item" = user wants to add an item to a list ("add milk to shopping list", "add buy eggs to groceries")
+- "get_todo" = user wants to see a list ("show my shopping list", "what's on my todo list")
+- "complete_todo_item" = user wants to mark a todo item as done ("done with milk", "check off eggs from shopping list")
 - "unknown" = casual chat, greeting, or question not related to any action
 
 Use the conversation history and pending reminders above to understand context. For "complete_reminder", the reminder ID MUST be a real ID from the pending reminders list — never invent one.
@@ -295,7 +299,7 @@ CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transf
 
 Return JSON with:
 {
-  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|unknown",
+  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|unknown",
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "brief title (for create_reminder)",
   "description": "full description (for create_reminder)",
@@ -309,7 +313,9 @@ Return JSON with:
   "noteKey": "title/keyword for the note (save_note/get_note only). For get_note: use exact words from user message.",
   "noteContent": "the content to save (save_note only)",
   "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
-  "password": "the password to save (save_password only, NEVER include this for get_password)"
+  "password": "the password to save (save_password only, NEVER include this for get_password)",
+  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item only)",
+  "todoItemContent": "content of the item to add (add_todo_item only)"
 }
 
 Rules:
@@ -351,8 +357,8 @@ Rules:
     
     const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
-Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password`;
+Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown.
+Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -382,8 +388,8 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password` }
+        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return valid JSON.' },
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -401,7 +407,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
 
   private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
-    const prompt = `Parse: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nDetermine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, unknown. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password`;
+    const prompt = `Parse: "${userInput}"\nCurrent time: ${new Date().toISOString()}${tzInfo}\n\nDetermine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent`;
     
     const response = await provider.client.run(provider.models.parsing, {
       input: {

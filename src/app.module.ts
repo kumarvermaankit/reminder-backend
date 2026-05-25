@@ -19,12 +19,15 @@ import { NoteService } from './services/note.service';
 import { PasswordService } from './services/password.service';
 import { EncryptionService } from './services/encryption.service';
 import { UserContextService } from './services/user-context.service';
+import { TodoListService } from './services/todo-list.service';
 import { Reminder } from './entities/reminder.entity';
 import { ReminderSchedule } from './entities/reminder-schedule.entity';
 import { User } from './entities/user.entity';
 import { Note } from './entities/note.entity';
 import { Password } from './entities/password.entity';
 import { UserContextEntity } from './entities/user-context.entity';
+import { TodoList } from './entities/todo-list.entity';
+import { TodoItem } from './entities/todo-item.entity';
 
 @Module({
   imports: [
@@ -40,11 +43,11 @@ import { UserContextEntity } from './entities/user-context.entity';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity],
+      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem],
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity])  ],
+    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService],
 })
 export class AppModule {}

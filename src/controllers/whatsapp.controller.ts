@@ -7,6 +7,7 @@ import { ReminderService } from '../services/reminder.service';
 import { NoteService } from '../services/note.service';
 import { PasswordService } from '../services/password.service';
 import { UserContextService } from '../services/user-context.service';
+import { TodoListService } from '../services/todo-list.service';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -21,6 +22,7 @@ export class WhatsappController {
     private readonly noteService: NoteService,
     private readonly passwordService: PasswordService,
     private readonly userContextService: UserContextService,
+    private readonly todoListService: TodoListService,
   ) {}
 
   @Post('webhook')
@@ -267,6 +269,97 @@ export class WhatsappController {
             }
           } else {
             botResponse = "Please tell me the service name and password you'd like to save. For example: 'save my facebook password as abc123'";
+          }
+          break;
+        }
+
+        case 'create_todo': {
+          if (parsed.todoListTitle) {
+            try {
+              const list = await this.todoListService.createList(user.id, parsed.todoListTitle);
+              botResponse = `📋 Created a new list "${parsed.todoListTitle}"! Add items by saying "add ... to ${parsed.todoListTitle}".`;
+            } catch (e) {
+              this.logger.error('Failed to create todo list:', e);
+              botResponse = 'Sorry, I could not create that list.';
+            }
+          } else {
+            botResponse = "What would you like to call your new list?";
+          }
+          break;
+        }
+
+        case 'add_todo_item': {
+          const listTitle = parsed.todoListTitle || 'general';
+          const itemContent = parsed.todoItemContent || parsed.noteKey;
+          if (itemContent) {
+            try {
+              let list = await this.todoListService.findListByTitle(user.id, listTitle);
+              if (!list) {
+                list = await this.todoListService.createList(user.id, listTitle);
+              }
+              await this.todoListService.addItem(list.id, user.id, itemContent);
+              botResponse = `✅ Added "${itemContent}" to ${listTitle} list!`;
+            } catch (e) {
+              this.logger.error('Failed to add todo item:', e);
+              botResponse = 'Sorry, I could not add that item.';
+            }
+          } else {
+            botResponse = "What would you like to add to the list?";
+          }
+          break;
+        }
+
+        case 'get_todo': {
+          if (parsed.todoListTitle) {
+            try {
+              const list = await this.todoListService.findListByTitle(user.id, parsed.todoListTitle);
+              if (list) {
+                botResponse = this.todoListService.formatList(list);
+              } else {
+                botResponse = `I don't have a list called "${parsed.todoListTitle}".`;
+              }
+            } catch (e) {
+              this.logger.error('Failed to get todo list:', e);
+              botResponse = 'Sorry, I could not retrieve that list.';
+            }
+          } else {
+            const lists = await this.todoListService.getLists(user.id);
+            if (lists.length > 0) {
+              botResponse = `Here are your lists:\n${lists.map(l => `• ${l.title}`).join('\n')}\n\nAsk to see one by name!`;
+            } else {
+              botResponse = "You don't have any lists yet. Create one by saying something like 'start a shopping list'.";
+            }
+          }
+          break;
+        }
+
+        case 'complete_todo_item': {
+          const listTitle = parsed.todoListTitle || 'general';
+          const itemContent = parsed.todoItemContent || parsed.noteKey;
+          if (itemContent) {
+            try {
+              const list = await this.todoListService.findListByTitle(user.id, listTitle);
+              if (list) {
+                const items = await this.todoListService.getItems(list.id, user.id);
+                const pending = items.filter(i => !i.isCompleted);
+                const match = pending.find(i =>
+                  i.content.toLowerCase().includes(itemContent.toLowerCase())
+                );
+                if (match) {
+                  await this.todoListService.completeItem(match.id, user.id);
+                  botResponse = `✅ Marked "${match.content}" as done!`;
+                } else {
+                  botResponse = `I couldn't find "${itemContent}" in the ${listTitle} list.`;
+                }
+              } else {
+                botResponse = `I don't have a list called "${listTitle}".`;
+              }
+            } catch (e) {
+              this.logger.error('Failed to complete todo item:', e);
+              botResponse = 'Sorry, I could not mark that item as done.';
+            }
+          } else {
+            botResponse = "Which item would you like to mark as done?";
           }
           break;
         }

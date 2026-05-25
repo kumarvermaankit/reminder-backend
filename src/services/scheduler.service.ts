@@ -147,6 +147,16 @@ export class SchedulerService {
     });
 
     const nextTime = new Date(Date.now() + fresh.reminderInterval * 60 * 1000);
+
+    // Guard against duplicate schedule insertion
+    const existing = await this.scheduleRepository.findOne({
+      where: { reminderId: reminder.id, scheduledTime: nextTime },
+    });
+    if (existing) {
+      this.logger.warn(`Schedule already exists for reminder ${reminder.id} at ${nextTime}, skipping`);
+      return;
+    }
+
     await this.scheduleRepository.save(
       this.scheduleRepository.create({
         reminderId: reminder.id,

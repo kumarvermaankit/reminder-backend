@@ -4,6 +4,7 @@ import { User } from './user.entity';
 
 @Entity('reminder_schedules')
 @Index('idx_schedule_lookup', ['scheduledTime', 'isCompleted', 'retryCount'])
+@Index('idx_unique_schedule', ['reminderId', 'scheduledTime'], { unique: true })
 export class ReminderSchedule {
   @PrimaryGeneratedColumn('uuid')
   id: string;

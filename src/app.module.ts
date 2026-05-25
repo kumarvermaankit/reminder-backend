@@ -16,12 +16,15 @@ import { AiService } from './services/ai.service';
 import { SimpleAiService } from './services/simple-ai.service';
 import { McpAgentService } from './mcp/agent/mcp-agent.service';
 import { NoteService } from './services/note.service';
-import { PasswordVaultService } from './services/password-vault.service';
+import { PasswordService } from './services/password.service';
+import { EncryptionService } from './services/encryption.service';
+import { UserContextService } from './services/user-context.service';
 import { Reminder } from './entities/reminder.entity';
 import { ReminderSchedule } from './entities/reminder-schedule.entity';
 import { User } from './entities/user.entity';
 import { Note } from './entities/note.entity';
-import { PasswordVault } from './entities/password-vault.entity';
+import { Password } from './entities/password.entity';
+import { UserContextEntity } from './entities/user-context.entity';
 
 @Module({
   imports: [
@@ -37,11 +40,11 @@ import { PasswordVault } from './entities/password-vault.entity';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      entities: [Reminder, ReminderSchedule, User, Note, PasswordVault],
+      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity],
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, PasswordVault])  ],
-  controllers: [AppController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordVaultService],
+    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity])  ],
+  controllers: [AppController, ReminderController, AiController, WhatsappController],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService],
 })
 export class AppModule {}

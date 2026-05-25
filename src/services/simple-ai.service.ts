@@ -5,6 +5,7 @@ import { Together } from 'together-ai';
 import Replicate from 'replicate';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
+import { WORKFLOWS } from '../constants/workflows';
 
 interface AIProvider {
   name: string;
@@ -169,7 +170,9 @@ export class SimpleAiService {
       ? `\nUser's pending reminders:\n${pendingReminders.map(r => `ID: ${r.id}, Title: "${r.title}"`).join('\n')}\n---`
       : '';
 
-    const fullPrompt = `${userInput}${historyText}${remindersText}`;
+    const workflowsText = `\nSystem capabilities (refer to this when user asks how things work):\n${WORKFLOWS}\n---`;
+
+    const fullPrompt = `${userInput}${historyText}${remindersText}${workflowsText}`;
 
     try {
       switch (provider.name) {
@@ -198,16 +201,18 @@ export class SimpleAiService {
       return "I got you! I'll help set that reminder.";
     }
 
+    const inputWithWorkflows = `${userInput}\n\nSystem capabilities:\n${WORKFLOWS}`;
+
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.generateWithGroq(provider, userInput, reminder);
+          return await this.generateWithGroq(provider, inputWithWorkflows, reminder);
         case 'together':
-          return await this.generateWithTogether(provider, userInput, reminder);
+          return await this.generateWithTogether(provider, inputWithWorkflows, reminder);
         case 'replicate':
-          return await this.generateWithReplicate(provider, userInput, reminder);
+          return await this.generateWithReplicate(provider, inputWithWorkflows, reminder);
         case 'gemini':
-          return await this.generateWithGemini(provider, userInput, reminder);
+          return await this.generateWithGemini(provider, inputWithWorkflows, reminder);
         default:
           return this.getStaticResponse(userInput, reminder);
       }

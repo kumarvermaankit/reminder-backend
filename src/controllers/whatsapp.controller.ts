@@ -432,6 +432,55 @@ export class WhatsappController {
           break;
         }
 
+        case 'edit_todo_item': {
+          const listTitle = parsed.todoListTitle || 'general';
+          const targetRef = parsed.todoItemContent || (parsed.todoItemContents ? parsed.todoItemContents[0] : '');
+          const newContent = parsed.noteContent;
+          if (targetRef && newContent) {
+            try {
+              const list = await this.todoListService.findListByTitle(user.id, listTitle);
+              if (list) {
+                const allItems = await this.todoListService.getItems(list.id, user.id);
+                const pending = allItems.filter(i => !i.isCompleted);
+
+                // Match by positional keyword or text
+                let match: any = null;
+                const lowerRef = targetRef.toLowerCase();
+                if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
+                  match = pending[0] || null;
+                } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
+                  match = pending[1] || null;
+                } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
+                  match = pending[2] || null;
+                } else if (/^last\b/.test(lowerRef)) {
+                  match = pending[pending.length - 1] || null;
+                } else {
+                  match = pending.find(i =>
+                    i.content.toLowerCase().includes(lowerRef)
+                  ) || allItems.find(i =>
+                    i.content.toLowerCase().includes(lowerRef)
+                  );
+                }
+
+                if (match) {
+                  await this.todoListService.updateItem(match.id, user.id, newContent);
+                  botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${listTitle}!`;
+                } else {
+                  botResponse = `I couldn't find "${targetRef}" in the ${listTitle} list.`;
+                }
+              } else {
+                botResponse = `I don't have a list called "${listTitle}".`;
+              }
+            } catch (e) {
+              this.logger.error('Failed to edit todo item:', e);
+              botResponse = 'Sorry, I could not edit that item.';
+            }
+          } else {
+            botResponse = "Please tell me which item to edit and what to change it to. For example: 'edit first item as buy milk'.";
+          }
+          break;
+        }
+
         case 'get_password': {
           if (parsed.serviceName) {
             const entries = await this.passwordService.getPasswordsByService(user.id, parsed.serviceName);

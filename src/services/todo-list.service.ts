@@ -77,6 +77,18 @@ export class TodoListService {
     return this.itemRepo.save(item);
   }
 
+  async updateItem(itemId: string, userId: string, newContent: string): Promise<TodoItem> {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId },
+      relations: ['list'],
+    });
+    if (!item || item.list.userId !== userId) {
+      throw new NotFoundException('Todo item not found');
+    }
+    item.content = newContent;
+    return this.itemRepo.save(item);
+  }
+
   async deleteList(listId: string, userId: string): Promise<void> {
     const list = await this.getList(listId, userId);
     await this.listRepo.remove(list);

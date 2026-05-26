@@ -38,8 +38,14 @@ export class ChatController {
       // Try to parse as a reminder request
       const parsedReminder = await this.aiService.parseReminderInput(message, userId);
       
-      // Generate casual response
-      const response = await this.aiService.generateBasicResponse(message, parsedReminder);
+      // Static response based on what we parsed
+      let response = "I'm not sure I understood that.";
+      
+      if (parsedReminder.needsClarification && parsedReminder.clarificationQuestion) {
+        response = parsedReminder.clarificationQuestion;
+      } else if (parsedReminder.confidence > 0.3 && parsedReminder.title) {
+        response = `Got it! I'll help with that.`;
+      }
       
       // Create reminder if confident enough and no clarification needed
       let createdReminder = null;

@@ -469,13 +469,9 @@ export class WhatsappController {
               });
               const timeStr = this.formatRelativeTime(reminderDate);
               const repeatInfo = parsed.intervalMinutes
-                ? `, repeating every ${parsed.intervalMinutes} min`
+                ? ` (repeats every ${parsed.intervalMinutes} min)`
                 : '';
-              const aiResponse = await this.aiService.generateBasicResponse(
-                `Reminder created: "${created.title}" at ${timeStr}${repeatInfo}`,
-                parsed,
-              );
-              botResponse = aiResponse;
+              botResponse = `✅ Reminder set! I'll remind you to "${created.title}" ${timeStr}${repeatInfo}.`;
             } catch (e) {
               this.logger.error('Failed to save reminder:', e);
               botResponse = "I understood your reminder but had trouble saving it. Please try again!";
@@ -483,8 +479,7 @@ export class WhatsappController {
           } else if (parsed.needsClarification && parsed.clarificationQuestion) {
             botResponse = parsed.clarificationQuestion;
           } else {
-            const aiResponse = await this.aiService.generateBasicResponse(message, parsed.confidence > 0.3 ? parsed : undefined);
-            botResponse = aiResponse;
+            botResponse = "I'm not sure I understood that. You can:\n• Set a reminder (\"remind me to...\")\n• Save a note (\"remember that...\")\n• Save a password (\"save my ... password as...\")\n• Create a todo list (\"start a shopping list\")";
           }
         }
       }

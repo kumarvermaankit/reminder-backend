@@ -7,10 +7,46 @@ import { Note } from '../entities/note.entity';
 export class NoteService {
   private readonly logger = new Logger(NoteService.name);
 
+  private static readonly KEYWORD_MAP: Record<string, string[]> = {
+    email: ['email', 'mail', 'e-mail', 'contact'],
+    password: ['password', 'pass', 'credentials', 'login', 'key'],
+    address: ['address', 'location', 'place', 'home', 'residence'],
+    phone: ['phone', 'phone number', 'mobile', 'cell', 'telephone', 'contact'],
+    whatsapp: ['whatsapp', 'wa', 'chat'],
+    bank: ['bank', 'account', 'finance', 'payment'],
+    card: ['card', 'credit card', 'debit card', 'payment'],
+    name: ['name', 'full name', 'username'],
+    id: ['id', 'identification', 'identity'],
+    social: ['social', 'instagram', 'twitter', 'facebook', 'linkedin'],
+    url: ['url', 'link', 'website', 'site', 'web'],
+    github: ['github', 'git', 'repository', 'repo'],
+    meeting: ['meeting', 'call', 'zoom', 'schedule', 'appointment'],
+    note: ['note', 'notes', 'reminder', 'info'],
+    birthday: ['birthday', 'bday', 'dob', 'date of birth', 'born'],
+    license: ['license', 'licence', 'permit', 'certificate'],
+    doctor: ['doctor', 'dr', 'medical', 'health', 'appointment'],
+    school: ['school', 'college', 'university', 'education', 'class'],
+    work: ['work', 'job', 'office', 'company', 'employment'],
+    pin: ['pin', 'pin code', 'pincode', 'zip', 'zipcode', 'postal'],
+  };
+
   constructor(
     @InjectRepository(Note)
     private readonly noteRepository: Repository<Note>,
   ) {}
+
+  private generateTags(title: string, content: string): string[] {
+    const tags = new Set<string>();
+    const text = `${title} ${content}`.toLowerCase();
+
+    for (const [keyword, synonyms] of Object.entries(NoteService.KEYWORD_MAP)) {
+      if (text.includes(keyword)) {
+        synonyms.forEach(s => tags.add(s));
+      }
+    }
+
+    return [...tags];
+  }
 
   async createNote(
     userId: string,
@@ -23,17 +59,20 @@ export class NoteService {
       throw new BadRequestException('Title and content are required');
     }
 
+    const autoTags = this.generateTags(title, content);
+    const allTags = [...new Set([...(tags || []), ...autoTags])];
+
     const note = this.noteRepository.create({
       userId,
       title,
       content,
       category: category || 'general',
-      tags: tags || [],
+      tags: allTags,
       isPinned: false,
     });
 
     const savedNote = await this.noteRepository.save(note);
-    this.logger.log(`Note created: ${savedNote.id} for user ${userId}`);
+    this.logger.log(`Note created: ${savedNote.id} for user ${userId} with tags: [${allTags.join(', ')}]`);
     return savedNote;
   }
 
@@ -77,9 +116,9 @@ export class NoteService {
     });
     if (exact) return [exact];
 
-    // OR match — any word in the query matches title or content
+    // OR match — any word in the query matches title, content, or tags
     const conditions = words.map((_, i) =>
-      `(note.title LIKE :word${i} OR note.content LIKE :word${i})`
+      `(note.title LIKE :word${i} OR note.content LIKE :word${i} OR note.tags LIKE :word${i})`
     ).join(' OR ');
 
     const params: Record<string, string> = { userId };
@@ -104,8 +143,17 @@ export class NoteService {
   ): Promise<Note> {
     const note = await this.getNoteById(noteId, userId);
 
-    if (title) note.title = title;
-    if (content) note.content = content;
+    if (title) {
+      note.title = title;
+      // Re-generate auto tags if title or content changed
+      const autoTags = this.generateTags(title, note.content);
+      note.tags = [...new Set([...(tags || []), ...autoTags])];
+    }
+    if (content) {
+      note.content = content;
+      const autoTags = this.generateTags(note.title, content);
+      note.tags = [...new Set([...(tags || []), ...autoTags])];
+    }
     if (category) note.category = category;
     if (tags) note.tags = tags;
 

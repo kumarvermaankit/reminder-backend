@@ -89,12 +89,10 @@ export class SimpleAiService {
           response: 'deepseek-chat',
           completion: 'deepseek-chat'
         },
-        priority: 3.5,
+        priority: 0.5,
         costPerRequest: 0.000
       });
     }
-
-    this.listGeminiModels();
 
     // Google Gemini - Final fallback (paid)
     const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -117,6 +115,7 @@ export class SimpleAiService {
     this.logger.log('GROQ_API_KEY:', groqApiKey ? 'FOUND' : 'NOT FOUND');
     this.logger.log('TOGETHER_API_KEY:', togetherApiKey ? 'FOUND' : 'NOT FOUND');
     this.logger.log('REPLICATE_API_TOKEN:', replicateApiToken ? 'FOUND' : 'NOT FOUND');
+    this.logger.log('DEEPSEEK_API_KEY:', deepseekApiKey ? 'FOUND' : 'NOT FOUND');
     this.logger.log('GEMINI_API_KEY:', geminiApiKey ? 'FOUND' : 'NOT FOUND');
 
     // Sort by priority

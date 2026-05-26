@@ -180,6 +180,8 @@ export class SimpleAiService {
           return await this.parseWithGroq(provider, fullPrompt, timezone);
         case 'together':
           return await this.parseWithTogether(provider, fullPrompt, timezone);
+        case 'replicate':
+          return await this.parseWithReplicate(provider, fullPrompt, timezone);
         case 'gemini':
           return await this.parseWithGemini(provider, fullPrompt, timezone);
         default:
@@ -406,6 +408,31 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
+    if (parsed.reminderDate) parsed.reminderDate = new Date(parsed.reminderDate);
+    return parsed;
+  }
+
+  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+    const tzInfo = timezone ? ` (${timezone})` : '';
+    const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
+Current date: ${new Date().toISOString()}${tzInfo}
+
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|unknown), title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount
+
+Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title.`;
+
+    const response = await provider.client.run(provider.models.parsing, {
+      input: {
+        prompt: prompt,
+        max_tokens: 400,
+        temperature: 0.3
+      }
+    });
+
+    const content = Array.isArray(response) ? response.join('') : String(response);
+    // Extract JSON from the response (handle markdown code blocks)
+    const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
+    const parsed = JSON.parse(jsonStr);
     if (parsed.reminderDate) parsed.reminderDate = new Date(parsed.reminderDate);
     return parsed;
   }

@@ -39,14 +39,19 @@ export class TodoListService {
     return list;
   }
 
-  async findListByTitle(userId: string, title: string): Promise<TodoList | null> {
-    const list = await this.listRepo
+  async findListsByTitle(userId: string, title: string): Promise<TodoList[]> {
+    return this.listRepo
       .createQueryBuilder('list')
       .leftJoinAndSelect('list.items', 'items')
       .where('list.userId = :userId', { userId })
       .andWhere('LOWER(list.title) = LOWER(:title)', { title })
-      .getOne();
-    return list || null;
+      .orderBy('list.updatedAt', 'DESC')
+      .getMany();
+  }
+
+  async findListByTitle(userId: string, title: string): Promise<TodoList | null> {
+    const lists = await this.findListsByTitle(userId, title);
+    return lists.length > 0 ? lists[0] : null;
   }
 
   async addItem(listId: string, userId: string, content: string): Promise<TodoItem> {

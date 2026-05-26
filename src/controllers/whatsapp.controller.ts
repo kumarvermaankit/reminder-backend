@@ -374,9 +374,15 @@ export class WhatsappController {
         case 'get_todo': {
           if (parsed.todoListTitle) {
             try {
-              const list = await this.todoListService.findListByTitle(user.id, parsed.todoListTitle);
-              if (list) {
-                botResponse = this.todoListService.formatList(list);
+              const lists = await this.todoListService.findListsByTitle(user.id, parsed.todoListTitle);
+              if (lists.length > 0) {
+                if (lists.length === 1) {
+                  botResponse = this.todoListService.formatList(lists[0]);
+                } else {
+                  botResponse = `I found ${lists.length} lists called "${parsed.todoListTitle}":\n\n${lists.map((l, i) =>
+                    `*${i + 1}.* ${l.title} (created ${l.createdAt.toLocaleDateString()})`
+                  ).join('\n')}\n\nTell me which one by number or date.`;
+                }
               } else {
                 botResponse = `I don't have a list called "${parsed.todoListTitle}".`;
               }
@@ -400,24 +406,26 @@ export class WhatsappController {
           const items = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : parsed.noteKey ? [parsed.noteKey] : []);
           if (items.length > 0) {
             try {
-              const list = await this.todoListService.findListByTitle(user.id, listTitle);
-              if (list) {
-                const allItems = await this.todoListService.getItems(list.id, user.id);
-                const pending = allItems.filter(i => !i.isCompleted);
+              const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
+              if (lists.length > 0) {
                 let doneCount = 0;
-                for (const target of items) {
-                  const match = pending.find(i =>
-                    i.content.toLowerCase().includes(target.toLowerCase())
-                  );
-                  if (match) {
-                    await this.todoListService.completeItem(match.id, user.id);
-                    doneCount++;
+                for (const list of lists) {
+                  const allItems = await this.todoListService.getItems(list.id, user.id);
+                  const pending = allItems.filter(i => !i.isCompleted);
+                  for (const target of items) {
+                    const match = pending.find(i =>
+                      i.content.toLowerCase().includes(target.toLowerCase())
+                    );
+                    if (match) {
+                      await this.todoListService.completeItem(match.id, user.id);
+                      doneCount++;
+                    }
                   }
                 }
                 if (doneCount > 0) {
                   botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
                 } else {
-                  botResponse = `I couldn't find those items in the ${listTitle} list.`;
+                  botResponse = `I couldn't find those items in any ${listTitle} list.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${listTitle}".`;
@@ -438,35 +446,45 @@ export class WhatsappController {
           const newContent = parsed.noteContent;
           if (targetRef && newContent) {
             try {
-              const list = await this.todoListService.findListByTitle(user.id, listTitle);
-              if (list) {
-                const allItems = await this.todoListService.getItems(list.id, user.id);
-                const pending = allItems.filter(i => !i.isCompleted);
-
-                // Match by positional keyword or text
+              const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
+              if (lists.length > 0) {
                 let match: any = null;
+                let matchedList: any = null;
                 const lowerRef = targetRef.toLowerCase();
-                if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-                  match = pending[0] || null;
-                } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-                  match = pending[1] || null;
-                } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-                  match = pending[2] || null;
-                } else if (/^last\b/.test(lowerRef)) {
-                  match = pending[pending.length - 1] || null;
-                } else {
-                  match = pending.find(i =>
-                    i.content.toLowerCase().includes(lowerRef)
-                  ) || allItems.find(i =>
-                    i.content.toLowerCase().includes(lowerRef)
-                  );
+
+                for (const list of lists) {
+                  const allItems = await this.todoListService.getItems(list.id, user.id);
+                  const pending = allItems.filter(i => !i.isCompleted);
+                  let found: any = null;
+
+                  if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
+                    found = pending[0] || null;
+                  } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
+                    found = pending[1] || null;
+                  } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
+                    found = pending[2] || null;
+                  } else if (/^last\b/.test(lowerRef)) {
+                    found = pending[pending.length - 1] || null;
+                  } else {
+                    found = pending.find(i =>
+                      i.content.toLowerCase().includes(lowerRef)
+                    ) || allItems.find(i =>
+                      i.content.toLowerCase().includes(lowerRef)
+                    );
+                  }
+
+                  if (found) {
+                    match = found;
+                    matchedList = list;
+                    break;
+                  }
                 }
 
                 if (match) {
                   await this.todoListService.updateItem(match.id, user.id, newContent);
-                  botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${listTitle}!`;
+                  botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${matchedList.title}!`;
                 } else {
-                  botResponse = `I couldn't find "${targetRef}" in the ${listTitle} list.`;
+                  botResponse = `I couldn't find "${targetRef}" in any ${listTitle} list.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${listTitle}".`;

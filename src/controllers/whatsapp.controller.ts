@@ -336,6 +336,16 @@ export class WhatsappController {
         user.name = parsed.userName;
       }
 
+      // Resolve "daily"/"today" list references to the date-based title
+      if (parsed.todoListTitle) {
+        const lower = parsed.todoListTitle.toLowerCase();
+        if (lower === 'daily' || lower === 'today' || lower === "today's" || lower === 'todolist' || lower === 'todo') {
+          parsed.todoListTitle = new Date().toLocaleDateString('en-US', {
+            timeZone: user.timezone, month: 'long', day: 'numeric',
+          });
+        }
+      }
+
       // Dispatch based on action type
       let botResponse: string;
 

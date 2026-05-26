@@ -410,7 +410,7 @@ export class WhatsappController {
                 reminderDate,
                 isCompleted: false,
                 isPersistent: !!parsed.intervalMinutes,
-                reminderInterval: parsed.intervalMinutes || 30,
+                reminderInterval: parsed.intervalMinutes || 0,
                 maxReminderCount: parsed.maxReminderCount || 0,
                 reminderCount: 0,
                 metadata: {
@@ -421,8 +421,11 @@ export class WhatsappController {
                 }
               });
               const timeStr = this.formatRelativeTime(reminderDate);
+              const repeatInfo = parsed.intervalMinutes
+                ? `, repeating every ${parsed.intervalMinutes} min`
+                : '';
               const aiResponse = await this.aiService.generateBasicResponse(
-                `Reminder created: "${created.title}" at ${timeStr}, repeating every ${parsed.intervalMinutes || 30} min`,
+                `Reminder created: "${created.title}" at ${timeStr}${repeatInfo}`,
                 parsed,
               );
               botResponse = aiResponse;

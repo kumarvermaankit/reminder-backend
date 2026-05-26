@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { UserService } from './user.service';
+import { TodoListService } from './todo-list.service';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { User } from '../entities/user.entity';
 
@@ -11,6 +12,7 @@ export class NotificationService {
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly userService: UserService,
+    private readonly todoListService: TodoListService,
   ) {}
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
@@ -114,10 +116,24 @@ private formatReminderMessage(title: string, description: string, userName: stri
     try {
       const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
       const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
+
+      // Auto-create daily todo list if it doesn't already exist
+      let dailyList = await this.todoListService.findListByTitle(user.id, 'daily');
+      if (!dailyList) {
+        dailyList = await this.todoListService.createList(user.id, 'daily');
+      }
+
+      const itemCount = dailyList.items?.filter(i => !i.isCompleted)?.length || 0;
+      const listStatus = itemCount > 0
+        ? `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your daily list already.`
+        : `Your daily list is ready and waiting for today's tasks!`;
+
       const message = [
         `☀️ Good morning, ${greeting}!`,
         '',
-        `What's on your to-do list today? Tell me your tasks and I can set reminders for each of them.`,
+        listStatus,
+        '',
+        `Tell me what you need to do today and I'll add it to your *daily* list with reminders if you'd like.`,
         '',
         `Example: "add review PR to daily list remind me at 3pm"`,
         'Or just list your tasks and I\'ll figure it out!',

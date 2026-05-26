@@ -313,6 +313,7 @@ First, determine the actionType:
 - "edit_todo_item" = user wants to change the text of a todo item ("edit first list item as ...", "change milk to almond milk in shopping list", "update the eggs item to organic eggs")
 - "delete_list" = user wants to delete/remove a todo list entirely ("delete my shopping list", "remove the grocery list", "trash the todo list")
 - "system_query" = user is asking about the system's capabilities ("what can you do?", "how to set a reminder", "how to save a password", "can you save passwords", "is my password protected", "how do todo lists work") or simple greetings ("hi", "hello", "hey", "good morning")
+- "update_settings" = user wants to change their preferences like daily prompt time ("set my daily prompt to 8am", "change daily reminder time to 10am", "make daily list at 9am"). Set dailyPromptTime to the requested time in HH:mm format.
 - "unknown" = casual chat not related to any action and not a system query
 
 Use the conversation history and pending reminders above to understand context. For "complete_reminder", the reminder ID MUST be a real ID from the pending reminders list — never invent one.
@@ -328,7 +329,7 @@ CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transf
 
 Return JSON with:
 {
-  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|unknown",
+  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown",
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
@@ -346,7 +347,8 @@ Return JSON with:
   "password": "the password to save (save_password only, NEVER include this for get_password)",
   "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item/complete_todo_item only). If the user doesn't specify a list name, use 'general'.",
   "todoItemContent": "a single item to add (add_todo_item only, use this when there's ONE item)",
-  "todoItemContents": "an array of items when the user gives MULTIPLE items (add_todo_item/create_todo only, e.g. ['walk', 'need to work on merger task', 'need to review PR'])"
+  "todoItemContents": "an array of items when the user gives MULTIPLE items (add_todo_item/create_todo only, e.g. ['walk', 'need to work on merger task', 'need to review PR'])",
+  "dailyPromptTime": "HH:mm format (update_settings only, e.g. '09:00'). Set when user requests to change their daily prompt time."
 }
 
 Rules:
@@ -387,7 +389,7 @@ Rules:
     const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount`;
+Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -417,8 +419,8 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount` }
+        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -436,7 +438,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
 Current date: ${new Date().toISOString()}${tzInfo}
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|unknown), title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
 Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title.`;
 

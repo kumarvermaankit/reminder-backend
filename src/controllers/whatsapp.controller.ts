@@ -680,6 +680,21 @@ export class WhatsappController {
           break;
         }
 
+        case 'update_settings': {
+          if (parsed.dailyPromptTime) {
+            const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+            if (timePattern.test(parsed.dailyPromptTime)) {
+              await this.userService.updateUser(user.id, { dailyPromptTime: parsed.dailyPromptTime });
+              botResponse = `✅ Your daily prompt time has been set to ${parsed.dailyPromptTime}. I'll check in with you each day then!`;
+            } else {
+              botResponse = `I couldn't understand that time. Please use HH:mm format, like 09:00 or 14:30.`;
+            }
+          } else {
+            botResponse = `Your daily prompt is currently set to ${user.dailyPromptTime || '09:00'}. Say "set daily prompt to 8am" to change it.`;
+          }
+          break;
+        }
+
         case 'system_query': {
           const workflowsResponse = await this.aiService.generateBasicResponse(
             `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,

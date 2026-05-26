@@ -1,4 +1,4 @@
-export type ActionType = 'create_reminder' | 'complete_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'create_todo' | 'add_todo_item' | 'get_todo' | 'complete_todo_item' | 'edit_todo_item' | 'delete_list' | 'system_query' | 'unknown';
+export type ActionType = 'create_reminder' | 'complete_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'create_todo' | 'add_todo_item' | 'get_todo' | 'complete_todo_item' | 'edit_todo_item' | 'delete_list' | 'system_query' | 'update_settings' | 'unknown';
 
 export interface ParsedReminder {
   actionType?: ActionType;
@@ -25,6 +25,7 @@ export interface ParsedReminder {
   todoListTitle?: string;
   todoItemContent?: string;
   todoItemContents?: string[];
+  dailyPromptTime?: string;
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

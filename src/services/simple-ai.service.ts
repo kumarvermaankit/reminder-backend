@@ -105,7 +105,7 @@ export class SimpleAiService {
           response: 'gemini-3-flash-preview',
           completion: 'gemini-3-flash-preview'
         },
-        priority: 1.5,
+        priority: 0.1,
         costPerRequest: 0.001
       });
     }

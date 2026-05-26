@@ -86,7 +86,8 @@ export class TodoListService {
       where: { listId: item.listId, isCompleted: false },
     });
     if (remaining === 0) {
-      await this.listRepo.remove(saved.list);
+      await this.itemRepo.delete({ listId: item.listId });
+      await this.listRepo.delete(item.listId);
       return { item: saved, listDeleted: true };
     }
 
@@ -107,6 +108,7 @@ export class TodoListService {
 
   async deleteList(listId: string, userId: string): Promise<void> {
     const list = await this.getList(listId, userId);
+    await this.itemRepo.delete({ listId });
     await this.listRepo.remove(list);
   }
 

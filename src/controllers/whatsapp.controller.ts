@@ -248,19 +248,23 @@ export class WhatsappController {
           case 'complete_todo_item': {
             const targets = pendingSelection.itemTargets || [];
             let doneCount = 0;
+            let listDeleted = false;
             const pending = list.items.filter(i => !i.isCompleted);
             for (const target of targets) {
               const match = pending.find(i =>
                 i.content.toLowerCase().includes(target.toLowerCase())
               );
               if (match) {
-                await this.todoListService.completeItem(match.id, user.id);
+                const result = await this.todoListService.completeItem(match.id, user.id);
                 doneCount++;
+                if (result.listDeleted) listDeleted = true;
               }
             }
-            selRes = doneCount > 0
-              ? `✅ Marked ${doneCount} item(s) as done in ${list.title}!`
-              : `I couldn't find those items in the ${list.title} list.`;
+            selRes = listDeleted
+              ? `✅ All items done in ${list.title}! The list has been cleaned up. 🎉`
+              : doneCount > 0
+                ? `✅ Marked ${doneCount} item(s) as done in ${list.title}!`
+                : `I couldn't find those items in the ${list.title} list.`;
             break;
           }
           case 'edit_todo_item': {
@@ -284,6 +288,10 @@ export class WhatsappController {
           }
           default:
             selRes = this.todoListService.formatList(list);
+        }
+        if (pendingSelection.actionType === 'delete_list') {
+          await this.todoListService.deleteList(selectedId, user.id);
+          selRes = `🗑️ Deleted "${pendingSelection.title}" list!`;
         }
         await this.whatsappService.sendMessage(userPhone, selRes);
         await this.userContextService.pushMessage(user.id, 'assistant', selRes);
@@ -474,18 +482,34 @@ export class WhatsappController {
               if (lists.length > 0) {
                 if (lists.length === 1) {
                   let doneCount = 0;
+                  let listDeleted = false;
                   const allItems = await this.todoListService.getItems(lists[0].id, user.id);
                   const pending = allItems.filter(i => !i.isCompleted);
                   for (const target of items) {
-                    const match = pending.find(i =>
-                      i.content.toLowerCase().includes(target.toLowerCase())
-                    );
+                    const lowerRef = target.toLowerCase();
+                    let match: any = null;
+                    if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
+                      match = pending[0] || null;
+                    } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
+                      match = pending[1] || null;
+                    } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
+                      match = pending[2] || null;
+                    } else if (/^last\b/.test(lowerRef)) {
+                      match = pending[pending.length - 1] || null;
+                    } else {
+                      match = pending.find(i =>
+                        i.content.toLowerCase().includes(lowerRef)
+                      );
+                    }
                     if (match) {
-                      await this.todoListService.completeItem(match.id, user.id);
+                      const result = await this.todoListService.completeItem(match.id, user.id);
                       doneCount++;
+                      if (result.listDeleted) listDeleted = true;
                     }
                   }
-                  if (doneCount > 0) {
+                  if (listDeleted) {
+                    botResponse = `✅ All items done in ${listTitle}! The list has been cleaned up. 🎉`;
+                  } else if (doneCount > 0) {
                     botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
                   } else {
                     botResponse = `I couldn't find those items in the ${listTitle} list.`;
@@ -571,6 +595,35 @@ export class WhatsappController {
             }
           } else {
             botResponse = "Please tell me which item to edit and what to change it to. For example: 'edit first item as buy milk'.";
+          }
+          break;
+        }
+
+        case 'delete_list': {
+          const listTitle = parsed.todoListTitle || 'general';
+          try {
+            const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
+            if (lists.length > 0) {
+              if (lists.length === 1) {
+                await this.todoListService.deleteList(lists[0].id, user.id);
+                botResponse = `🗑️ Deleted "${listTitle}" list!`;
+              } else {
+                await this.userContextService.setPendingListSelection(user.id, {
+                  title: listTitle,
+                  listIds: lists.map(l => l.id),
+                  listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+                  actionType: 'delete_list',
+                });
+                botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
+                  `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
+                ).join('\n')}\n\nWhich one do you want to delete? Reply with the number.`;
+              }
+            } else {
+              botResponse = `I don't have a list called "${listTitle}".`;
+            }
+          } catch (e) {
+            this.logger.error('Failed to delete list:', e);
+            botResponse = 'Sorry, I could not delete that list.';
           }
           break;
         }

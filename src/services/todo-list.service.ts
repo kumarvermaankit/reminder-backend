@@ -69,7 +69,7 @@ export class TodoListService {
     });
   }
 
-  async completeItem(itemId: string, userId: string): Promise<TodoItem> {
+  async completeItem(itemId: string, userId: string): Promise<{ item: TodoItem; listDeleted: boolean }> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId },
       relations: ['list'],
@@ -79,7 +79,18 @@ export class TodoListService {
     }
     item.isCompleted = true;
     item.completedAt = new Date();
-    return this.itemRepo.save(item);
+    const saved = await this.itemRepo.save(item);
+
+    // Auto-delete list if all items are done
+    const remaining = await this.itemRepo.count({
+      where: { listId: item.listId, isCompleted: false },
+    });
+    if (remaining === 0) {
+      await this.listRepo.remove(saved.list);
+      return { item: saved, listDeleted: true };
+    }
+
+    return { item: saved, listDeleted: false };
   }
 
   async updateItem(itemId: string, userId: string, newContent: string): Promise<TodoItem> {

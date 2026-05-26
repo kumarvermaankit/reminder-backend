@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Groq } from 'groq-sdk';
 import { Together } from 'together-ai';
 import Replicate from 'replicate';
+import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
 import { WORKFLOWS } from '../constants/workflows';
@@ -74,6 +75,22 @@ export class SimpleAiService {
         },
         priority: 3,
         costPerRequest: 0.001
+      });
+    }
+
+    // DeepSeek - Fourth priority (free trial credits, OpenAI-compatible)
+    const deepseekApiKey = this.configService.get<string>('DEEPSEEK_API_KEY');
+    if (deepseekApiKey) {
+      this.providers.push({
+        name: 'deepseek',
+        client: new OpenAI({ apiKey: deepseekApiKey, baseURL: 'https://api.deepseek.com/v1' }),
+        models: {
+          parsing: 'deepseek-chat',
+          response: 'deepseek-chat',
+          completion: 'deepseek-chat'
+        },
+        priority: 3.5,
+        costPerRequest: 0.000
       });
     }
 
@@ -179,6 +196,7 @@ export class SimpleAiService {
         case 'groq':
           return await this.parseWithGroq(provider, fullPrompt, timezone);
         case 'together':
+        case 'deepseek':
           return await this.parseWithTogether(provider, fullPrompt, timezone);
         case 'replicate':
           return await this.parseWithReplicate(provider, fullPrompt, timezone);
@@ -208,6 +226,7 @@ export class SimpleAiService {
         case 'groq':
           return await this.generateWithGroq(provider, userInput, reminder);
         case 'together':
+        case 'deepseek':
           return await this.generateWithTogether(provider, userInput, reminder);
         case 'replicate':
           return await this.generateWithReplicate(provider, userInput, reminder);
@@ -233,6 +252,7 @@ export class SimpleAiService {
         case 'groq':
           return await this.detectCompletionWithGroq(provider, userInput, userReminders);
         case 'together':
+        case 'deepseek':
           return await this.detectCompletionWithTogether(provider, userInput, userReminders);
         case 'replicate':
           return await this.detectCompletionWithReplicate(provider, userInput, userReminders);

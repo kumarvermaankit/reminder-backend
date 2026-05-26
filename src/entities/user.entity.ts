@@ -40,6 +40,12 @@ export class User {
   @Column('simple-json', { nullable: true })
   lastReminderIds: string[];
 
+  @Column({ name: 'daily_prompt_time', length: 5, default: '07:00' })
+  dailyPromptTime: string; // HH:mm format in user's timezone
+
+  @Column({ name: 'last_daily_prompt_date', type: 'date', nullable: true })
+  lastDailyPromptDate: string; // YYYY-MM-DD in user's local date
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

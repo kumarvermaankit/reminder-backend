@@ -83,4 +83,27 @@ export class UserService {
     const now = new Date();
     return new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
   }
+
+  // Get today's local date (YYYY-MM-DD) for a user
+  getUserLocalDate(user: User): string {
+    return new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
+  }
+
+  // Find active users who are due for their daily prompt
+  async getUsersDueForDailyPrompt(): Promise<User[]> {
+    const users = await this.userRepository.find({ where: { isActive: true } });
+    return users.filter(u => {
+      const localToday = this.getUserLocalDate(u);
+      // Already prompted today
+      if (u.lastDailyPromptDate === localToday) return false;
+
+      // Check if prompt time has passed in user's local time
+      const localNow = this.getUserLocalTime(u);
+      const [pHours, pMins] = (u.dailyPromptTime || '07:00').split(':').map(Number);
+      const promptMin = pHours * 60 + pMins;
+      const nowMin = localNow.getHours() * 60 + localNow.getMinutes();
+
+      return nowMin >= promptMin;
+    });
+  }
 }

@@ -5,6 +5,7 @@ import { Repository, LessThanOrEqual, LessThan, Not, In } from 'typeorm';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
+import { UserService } from './user.service';
 
 function partition<T>(arr: T[], pred: (t: T) => boolean): [T[], T[]] {
   const pass: T[] = [];
@@ -27,6 +28,7 @@ export class SchedulerService {
     @InjectRepository(Reminder)
     private readonly reminderRepository: Repository<Reminder>,
     private readonly notificationService: NotificationService,
+    private readonly userService: UserService,
   ) {}
 
   @Cron('0 * * * * *')
@@ -97,6 +99,21 @@ export class SchedulerService {
       this.logger.error('Error processing due reminders:', error);
     } finally {
       this.processing = false;
+    }
+  }
+
+  @Cron('0 * * * * *')
+  async processDailyPrompts() {
+    try {
+      const due = await this.userService.getUsersDueForDailyPrompt();
+      if (due.length === 0) return;
+
+      this.logger.log(`Sending daily prompts to ${due.length} users`);
+      await Promise.allSettled(
+        due.map(user => this.notificationService.sendDailyPrompt(user)),
+      );
+    } catch (error) {
+      this.logger.error('Error processing daily prompts:', error);
     }
   }
 

@@ -110,6 +110,29 @@ private formatReminderMessage(title: string, description: string, userName: stri
     return message;
   }
 
+  async sendDailyPrompt(user: User): Promise<boolean> {
+    try {
+      const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
+      const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
+      const message = [
+        `☀️ Good morning, ${greeting}!`,
+        '',
+        `What's on your to-do list today? Tell me your tasks and I can set reminders for each of them.`,
+        '',
+        `Example: "add review PR to daily list remind me at 3pm"`,
+        'Or just list your tasks and I\'ll figure it out!',
+      ].join('\n');
+
+      await this.whatsappService.sendMessage(user.phone, message);
+      await this.userService.updateUser(user.id, { lastDailyPromptDate: localToday });
+      this.logger.log(`Daily prompt sent to user ${user.id}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send daily prompt to user ${user.id}:`, error);
+      return false;
+    }
+  }
+
   async sendRetry(schedule: ReminderSchedule): Promise<boolean> {
     const retryDelay = Math.pow(2, schedule.retryCount) * 1000; // Exponential backoff
     

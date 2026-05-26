@@ -114,10 +114,25 @@ export class WhatsappController {
       let botResponse: string;
 
       if (action === 'done') {
+        // If linked to a todo item, complete it too
+        if (reminder.todoItemId) {
+          try {
+            const result = await this.todoListService.completeItem(reminder.todoItemId, reminder.userId);
+            if (result.listDeleted) {
+              botResponse = `✅ Marked "${reminder.title}" as done and cleaned up the empty list!`;
+            } else {
+              botResponse = `✅ Marked "${reminder.title}" as done!`;
+            }
+          } catch {
+            // fall through — still mark the reminder done even if todo item can't be found
+            botResponse = `✅ Marked "${reminder.title}" as done!`;
+          }
+        } else {
+          botResponse = `✅ Marked "${reminder.title}" as done!`;
+        }
         await this.reminderService.markAsCompleted(reminder.id);
         await this.reminderService.deleteReminder(reminder.id);
         await this.reminderService.deleteAllSchedulesForReminder(reminder.id);
-        botResponse = `✅ Marked "${reminder.title}" as done!`;
       } else if (action === 'snooze_5') {
         const nextTime = new Date(Date.now() + 5 * 60 * 1000);
         await this.reminderService.createSchedule(reminder.id, nextTime);
@@ -397,9 +412,19 @@ export class WhatsappController {
               const items = parsed.todoItemContents || [];
               if (items.length > 0) {
                 for (const item of items) {
-                  await this.todoListService.addItem(list.id, user.id, item);
+                  const saved = await this.todoListService.addItem(list.id, user.id, item, parsed.reminderDate);
+                  if (parsed.reminderDate) {
+                    await this.reminderService.createReminder({
+                      userId: user.id,
+                      title: parsed.title || item,
+                      description: `In ${parsed.todoListTitle} list`,
+                      reminderDate: parsed.reminderDate,
+                      todoItemId: saved.id,
+                    });
+                  }
                 }
-                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!`;
+                const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about it.` : '';
+                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!${reminderNote}`;
               } else {
                 botResponse = `📋 Created a new list "${parsed.todoListTitle}"! Add items by saying "add ... to ${parsed.todoListTitle}".`;
               }
@@ -423,10 +448,20 @@ export class WhatsappController {
                 list = await this.todoListService.createList(user.id, listTitle);
               }
               for (const item of items) {
-                await this.todoListService.addItem(list.id, user.id, item);
+                const saved = await this.todoListService.addItem(list.id, user.id, item, parsed.reminderDate);
+                if (parsed.reminderDate) {
+                  await this.reminderService.createReminder({
+                    userId: user.id,
+                    title: parsed.title || item,
+                    description: `In ${listTitle} list`,
+                    reminderDate: parsed.reminderDate,
+                    todoItemId: saved.id,
+                  });
+                }
               }
               const label = items.length === 1 ? items[0] : `${items.length} items`;
-              botResponse = `✅ Added "${label}" to ${listTitle} list!`;
+              const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about ${items.length === 1 ? 'it' : 'them'}.` : '';
+              botResponse = `✅ Added "${label}" to ${listTitle} list!${reminderNote}`;
             } catch (e) {
               this.logger.error('Failed to add todo item:', e);
               botResponse = 'Sorry, I could not add that item.';

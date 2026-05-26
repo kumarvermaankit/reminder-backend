@@ -22,6 +22,9 @@ export class TodoItem {
   @Column({ default: 0 })
   position: number;
 
+  @Column({ name: 'reminder_at', type: 'datetime', nullable: true })
+  reminderAt: Date;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

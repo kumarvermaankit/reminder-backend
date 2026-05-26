@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
+import { TodoItem } from './todo-item.entity';
 
 @Entity('reminders')
 export class Reminder {
@@ -42,6 +43,13 @@ export class Reminder {
 
   @Column('json', { nullable: true })
   metadata: any;
+
+  @Column({ name: 'todo_item_id', nullable: true })
+  todoItemId: string;
+
+  @ManyToOne(() => TodoItem, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'todo_item_id' })
+  todoItem: TodoItem;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

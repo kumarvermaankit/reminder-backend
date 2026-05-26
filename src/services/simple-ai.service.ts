@@ -332,7 +332,7 @@ Return JSON with:
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime (for create_reminder). If interval is given but no start time, set to now + intervalMinutes.",
+  "reminderDate": "ISO datetime (for create_reminder, and optionally for add_todo_item/create_todo to set a timed reminder on a todo item). If interval is given but no start time, set to now + intervalMinutes.",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -344,7 +344,7 @@ Return JSON with:
   "noteContent": "the content to save (save_note only) OR the new text for a todo item (edit_todo_item only)",
   "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
   "password": "the password to save (save_password only, NEVER include this for get_password)",
-  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item/complete_todo_item only)",
+  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item/complete_todo_item only). If the user doesn't specify a list name, use 'general'.",
   "todoItemContent": "a single item to add (add_todo_item only, use this when there's ONE item)",
   "todoItemContents": "an array of items when the user gives MULTIPLE items (add_todo_item/create_todo only, e.g. ['walk', 'need to work on merger task', 'need to review PR'])"
 }

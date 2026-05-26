@@ -54,10 +54,10 @@ export class TodoListService {
     return lists.length > 0 ? lists[0] : null;
   }
 
-  async addItem(listId: string, userId: string, content: string): Promise<TodoItem> {
+  async addItem(listId: string, userId: string, content: string, reminderAt?: Date): Promise<TodoItem> {
     const list = await this.getList(listId, userId);
     const count = await this.itemRepo.count({ where: { listId } });
-    const item = this.itemRepo.create({ listId, content, position: count });
+    const item = this.itemRepo.create({ listId, content, position: count, reminderAt });
     return this.itemRepo.save(item);
   }
 

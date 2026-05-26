@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { PendingListSelection } from '../services/user-context.service';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -15,6 +16,9 @@ export class UserContextEntity {
 
   @Column('simple-json')
   conversation: ChatMessage[];
+
+  @Column('simple-json', { nullable: true, name: 'pending_list_selection' })
+  pendingListSelection: PendingListSelection | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

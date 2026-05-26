@@ -232,6 +232,64 @@ export class WhatsappController {
       const pendingReminders = await this.reminderService.getPendingRemindersForUser(user.id);
       this.logger.log(`User has ${pendingReminders.length} pending reminders`);
 
+      // Check for pending list selection (user responded with a number)
+      const pendingSelection = await this.userContextService.getPendingListSelection(user.id);
+      const selectionNum = parseInt(message.trim(), 10);
+      if (pendingSelection && selectionNum > 0 && selectionNum <= pendingSelection.listIds.length) {
+        this.logger.log(`Resolving list selection: ${selectionNum} (${pendingSelection.actionType})`);
+        await this.userContextService.clearPendingListSelection(user.id);
+        const selectedId = pendingSelection.listIds[selectionNum - 1];
+        const list = await this.todoListService.getList(selectedId, user.id);
+        let selRes: string;
+        switch (pendingSelection.actionType) {
+          case 'get_todo':
+            selRes = this.todoListService.formatList(list);
+            break;
+          case 'complete_todo_item': {
+            const targets = pendingSelection.itemTargets || [];
+            let doneCount = 0;
+            const pending = list.items.filter(i => !i.isCompleted);
+            for (const target of targets) {
+              const match = pending.find(i =>
+                i.content.toLowerCase().includes(target.toLowerCase())
+              );
+              if (match) {
+                await this.todoListService.completeItem(match.id, user.id);
+                doneCount++;
+              }
+            }
+            selRes = doneCount > 0
+              ? `✅ Marked ${doneCount} item(s) as done in ${list.title}!`
+              : `I couldn't find those items in the ${list.title} list.`;
+            break;
+          }
+          case 'edit_todo_item': {
+            const ref = pendingSelection.itemRef || '';
+            const newContent = pendingSelection.newContent || '';
+            const pending = list.items.filter(i => !i.isCompleted);
+            let match: any = null;
+            const lowerRef = ref.toLowerCase();
+            if (/^(first|1st|#1|top)\b/.test(lowerRef)) match = pending[0] || null;
+            else if (/^(second|2nd|#2)\b/.test(lowerRef)) match = pending[1] || null;
+            else if (/^(third|3rd|#3)\b/.test(lowerRef)) match = pending[2] || null;
+            else if (/^last\b/.test(lowerRef)) match = pending[pending.length - 1] || null;
+            else match = pending.find(i => i.content.toLowerCase().includes(lowerRef)) || null;
+            if (match) {
+              await this.todoListService.updateItem(match.id, user.id, newContent);
+              selRes = `✅ Updated "${ref}" to "${newContent}" in ${list.title}!`;
+            } else {
+              selRes = `I couldn't find "${ref}" in the ${list.title} list.`;
+            }
+            break;
+          }
+          default:
+            selRes = this.todoListService.formatList(list);
+        }
+        await this.whatsappService.sendMessage(userPhone, selRes);
+        await this.userContextService.pushMessage(user.id, 'assistant', selRes);
+        return;
+      }
+
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
@@ -379,9 +437,15 @@ export class WhatsappController {
                 if (lists.length === 1) {
                   botResponse = this.todoListService.formatList(lists[0]);
                 } else {
+                  await this.userContextService.setPendingListSelection(user.id, {
+                    title: parsed.todoListTitle,
+                    listIds: lists.map(l => l.id),
+                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+                    actionType: 'get_todo',
+                  });
                   botResponse = `I found ${lists.length} lists called "${parsed.todoListTitle}":\n\n${lists.map((l, i) =>
-                    `*${i + 1}.* ${l.title} (created ${l.createdAt.toLocaleDateString()})`
-                  ).join('\n')}\n\nTell me which one by number or date.`;
+                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
+                  ).join('\n')}\n\nReply with the number to pick one.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${parsed.todoListTitle}".`;
@@ -408,9 +472,9 @@ export class WhatsappController {
             try {
               const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
               if (lists.length > 0) {
-                let doneCount = 0;
-                for (const list of lists) {
-                  const allItems = await this.todoListService.getItems(list.id, user.id);
+                if (lists.length === 1) {
+                  let doneCount = 0;
+                  const allItems = await this.todoListService.getItems(lists[0].id, user.id);
                   const pending = allItems.filter(i => !i.isCompleted);
                   for (const target of items) {
                     const match = pending.find(i =>
@@ -421,11 +485,22 @@ export class WhatsappController {
                       doneCount++;
                     }
                   }
-                }
-                if (doneCount > 0) {
-                  botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
+                  if (doneCount > 0) {
+                    botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
+                  } else {
+                    botResponse = `I couldn't find those items in the ${listTitle} list.`;
+                  }
                 } else {
-                  botResponse = `I couldn't find those items in any ${listTitle} list.`;
+                  await this.userContextService.setPendingListSelection(user.id, {
+                    title: listTitle,
+                    listIds: lists.map(l => l.id),
+                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+                    actionType: 'complete_todo_item',
+                    itemTargets: items,
+                  });
+                  botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
+                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
+                  ).join('\n')}\n\nWhich list has the items you want to mark done? Reply with the number.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${listTitle}".`;
@@ -448,43 +523,44 @@ export class WhatsappController {
             try {
               const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
               if (lists.length > 0) {
-                let match: any = null;
-                let matchedList: any = null;
-                const lowerRef = targetRef.toLowerCase();
-
-                for (const list of lists) {
-                  const allItems = await this.todoListService.getItems(list.id, user.id);
+                if (lists.length === 1) {
+                  const allItems = await this.todoListService.getItems(lists[0].id, user.id);
                   const pending = allItems.filter(i => !i.isCompleted);
-                  let found: any = null;
-
+                  let match: any = null;
+                  const lowerRef = targetRef.toLowerCase();
                   if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-                    found = pending[0] || null;
+                    match = pending[0] || null;
                   } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-                    found = pending[1] || null;
+                    match = pending[1] || null;
                   } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-                    found = pending[2] || null;
+                    match = pending[2] || null;
                   } else if (/^last\b/.test(lowerRef)) {
-                    found = pending[pending.length - 1] || null;
+                    match = pending[pending.length - 1] || null;
                   } else {
-                    found = pending.find(i =>
+                    match = pending.find(i =>
                       i.content.toLowerCase().includes(lowerRef)
                     ) || allItems.find(i =>
                       i.content.toLowerCase().includes(lowerRef)
                     );
                   }
-
-                  if (found) {
-                    match = found;
-                    matchedList = list;
-                    break;
+                  if (match) {
+                    await this.todoListService.updateItem(match.id, user.id, newContent);
+                    botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${lists[0].title}!`;
+                  } else {
+                    botResponse = `I couldn't find "${targetRef}" in the ${listTitle} list.`;
                   }
-                }
-
-                if (match) {
-                  await this.todoListService.updateItem(match.id, user.id, newContent);
-                  botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${matchedList.title}!`;
                 } else {
-                  botResponse = `I couldn't find "${targetRef}" in any ${listTitle} list.`;
+                  await this.userContextService.setPendingListSelection(user.id, {
+                    title: listTitle,
+                    listIds: lists.map(l => l.id),
+                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+                    actionType: 'edit_todo_item',
+                    itemRef: targetRef,
+                    newContent,
+                  });
+                  botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
+                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
+                  ).join('\n')}\n\nWhich list has the item you want to edit? Reply with the number.`;
                 }
               } else {
                 botResponse = `I don't have a list called "${listTitle}".`;

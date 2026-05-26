@@ -81,12 +81,15 @@ export class WhatsappController {
 
       const from = message.from;
       const replyToMsgId = message.context?.id || null;
+      const msgTimestamp = message.timestamp
+        ? new Date(parseInt(message.timestamp) * 1000)
+        : new Date();
 
       if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
         await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
       } else if (message.type === 'text') {
         const text = message.text.body;
-        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId);
+        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp);
       }
     }
   }
@@ -159,7 +162,7 @@ export class WhatsappController {
     }
   }
 
-  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string, replyToMsgId?: string) {
+  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string, replyToMsgId?: string, msgTimestamp?: Date) {
     try {
       this.logger.log(`Processing message from ${userPhone}: "${message}"`);
 
@@ -332,7 +335,7 @@ export class WhatsappController {
       // Parse message via AI with full context
       this.logger.log('Parsing message via AI...');
       const parsed = await this.aiService.parseReminderInput(
-        message, user.id, user.timezone, conversation, pendingReminders,
+        message, user.id, user.timezone, conversation, pendingReminders, msgTimestamp,
       );
       this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}`);
 

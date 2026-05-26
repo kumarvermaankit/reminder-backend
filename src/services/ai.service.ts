@@ -14,8 +14,9 @@ export class AiService {
     timezone?: string,
     conversation?: { role: string; text: string }[],
     pendingReminders?: { id: string; title: string }[],
+    msgTimestamp?: Date,
   ): Promise<ParsedReminder> {
-    return await this.simpleAiService.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders);
+    return await this.simpleAiService.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders, msgTimestamp);
   }
 
   async generateBasicResponse(userInput: string, reminder?: ParsedReminder): Promise<string> {

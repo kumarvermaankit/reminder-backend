@@ -172,11 +172,15 @@ export class SimpleAiService {
     timezone?: string,
     conversation?: { role: string; text: string }[],
     pendingReminders?: { id: string; title: string }[],
+    msgTimestamp?: Date,
   ): Promise<ParsedReminder> {
     const provider = await this.selectProvider();
     if (!provider) {
       throw new Error('No AI providers available');
     }
+
+    const now = msgTimestamp || new Date();
+    const nowISO = now.toISOString();
 
     const historyText = conversation && conversation.length > 0
       ? `\nRecent conversation:\n${conversation.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: "${m.text}"`).join('\n')}\n---`
@@ -193,14 +197,14 @@ export class SimpleAiService {
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.parseWithGroq(provider, fullPrompt, timezone);
+          return await this.parseWithGroq(provider, fullPrompt, timezone, nowISO);
         case 'together':
         case 'deepseek':
-          return await this.parseWithTogether(provider, fullPrompt, timezone);
+          return await this.parseWithTogether(provider, fullPrompt, timezone, nowISO);
         case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, timezone);
+          return await this.parseWithReplicate(provider, fullPrompt, timezone, nowISO);
         case 'gemini':
-          return await this.parseWithGemini(provider, fullPrompt, timezone);
+          return await this.parseWithGemini(provider, fullPrompt, timezone, nowISO);
         default:
           throw new Error(`Unknown provider: ${provider.name}`);
       }
@@ -208,7 +212,7 @@ export class SimpleAiService {
       this.logger.error(`Failed to parse with ${provider.name}:`, error);
       if (this.providers.length > 1) {
         this.providers.shift();
-        return this.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders);
+        return this.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders, msgTimestamp);
       }
       throw error;
     }
@@ -305,11 +309,13 @@ export class SimpleAiService {
     return new Date(date.getTime() - offsetMs);
   }
 
-  private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+  private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` (${timezone})` : '';
+    const currentTime = nowISO || new Date().toISOString();
+    
     const prompt = `Parse this user message: "${userInput}"
     
-Current date: ${new Date().toISOString()}${tzInfo}
+Current date: ${currentTime}${tzInfo}
 
 First, determine the actionType:
 - "create_reminder" = user wants a new reminder for something
@@ -394,12 +400,13 @@ Rules:
     return parsed;
   }
 
-  private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+  private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
     const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
+    const currentTime = nowISO || new Date().toISOString();
     
     const prompt = `Parse: "${userInput}"
-Current time: ${new Date().toISOString()}${tzInfo}
+Current time: ${currentTime}${tzInfo}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
 Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount`;
 
@@ -426,13 +433,14 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     return parsed;
   }
 
-  private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+  private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
+    const currentTime = nowISO || new Date().toISOString();
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount` }
+        { role: 'user', content: `Parse: "${userInput}". Current time: ${currentTime}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -445,10 +453,11 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     return parsed;
   }
 
-  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
+  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` (${timezone})` : '';
+    const currentTime = nowISO || new Date().toISOString();
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
-Current date: ${new Date().toISOString()}${tzInfo}
+Current date: ${currentTime}${tzInfo}
 
 Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 

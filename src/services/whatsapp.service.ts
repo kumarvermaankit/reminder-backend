@@ -60,6 +60,50 @@ export class WhatsappService {
     }
   }
 
+  async sendInteractiveMessage(
+    to: string,
+    bodyText: string,
+    buttons: { id: string; title: string }[],
+  ): Promise<string | null> {
+    try {
+      const formattedPhone = to.replace(/^\+/, '');
+      const fbButtons = buttons.slice(0, 3).map(b => ({
+        type: 'reply',
+        reply: { id: b.id, title: b.title.slice(0, 20) },
+      }));
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: formattedPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText.slice(0, 1024) },
+          action: { buttons: fbButtons },
+        },
+      };
+
+      const response = await axios.post(
+        `${this.baseUrl}/${this.phoneNumberId}/messages`,
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const msgId = response.data.messages?.[0]?.id || null;
+      this.logger.log(`WhatsApp interactive message sent to ${to}: ${msgId}`);
+      return msgId;
+    } catch (error) {
+      this.logger.error('Error sending WhatsApp interactive message:', error.response?.data || error.message);
+      return null;
+    }
+  }
+
   async sendTemplateMessage(to: string, templateName: string, languageCode: string = 'en', components?: any[]): Promise<boolean> {
     try {
       const formattedPhone = to.replace(/^\+/, '');

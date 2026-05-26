@@ -79,4 +79,16 @@ export class ReminderService {
   async deleteAllSchedulesForReminder(reminderId: string) {
     await this.scheduleRepository.delete({ reminderId });
   }
+
+  async getScheduleById(scheduleId: string): Promise<ReminderSchedule | null> {
+    return this.scheduleRepository.findOne({
+      where: { id: scheduleId },
+      relations: ['reminder'],
+    });
+  }
+
+  async createSchedule(reminderId: string, scheduledTime: Date): Promise<ReminderSchedule> {
+    const schedule = this.scheduleRepository.create({ reminderId, scheduledTime });
+    return this.scheduleRepository.save(schedule);
+  }
 }

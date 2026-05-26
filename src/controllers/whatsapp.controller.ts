@@ -70,22 +70,69 @@ export class WhatsappController {
     const phoneNumber = messageData.metadata?.display_phone_number;
 
     for (const message of messages) {
-      if (message.type === 'text') {
-        const msgId = message.id;
-        if (this.processedMessages.has(msgId)) {
-          this.logger.log(`Duplicate message ${msgId} skipped`);
-          continue;
-        }
-        this.processedMessages.add(msgId);
-        // Clean up old entries after 5 min
-        setTimeout(() => this.processedMessages.delete(msgId), 300000);
+      const msgId = message.id;
+      if (this.processedMessages.has(msgId)) {
+        this.logger.log(`Duplicate message ${msgId} skipped`);
+        continue;
+      }
+      this.processedMessages.add(msgId);
+      setTimeout(() => this.processedMessages.delete(msgId), 300000);
 
-        const from = message.from;
+      const from = message.from;
+      const replyToMsgId = message.context?.id || null;
+
+      if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
+        await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
+      } else if (message.type === 'text') {
         const text = message.text.body;
-        const replyToMsgId = message.context?.id || null;
-
         await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId);
       }
+    }
+  }
+
+  private async handleButtonReply(
+    userPhone: string,
+    buttonReply: { id: string; title: string },
+    businessPhone: string,
+    replyToMsgId?: string,
+  ) {
+    try {
+      const [action, scheduleId] = buttonReply.id.split(':');
+      if (!scheduleId) {
+        this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
+        return;
+      }
+
+      const schedule = await this.reminderService.getScheduleById(scheduleId);
+      if (!schedule || !schedule.reminder) {
+        this.logger.warn(`Schedule ${scheduleId} not found for button reply`);
+        return;
+      }
+
+      const reminder = schedule.reminder;
+      let botResponse: string;
+
+      if (action === 'done') {
+        await this.reminderService.markAsCompleted(reminder.id);
+        await this.reminderService.deleteReminder(reminder.id);
+        await this.reminderService.deleteAllSchedulesForReminder(reminder.id);
+        botResponse = `✅ Marked "${reminder.title}" as done!`;
+      } else if (action === 'snooze_5') {
+        const nextTime = new Date(Date.now() + 5 * 60 * 1000);
+        await this.reminderService.createSchedule(reminder.id, nextTime);
+        botResponse = `⏰ Snoozed "${reminder.title}" for 5 minutes. I'll remind you again at ${nextTime.toLocaleTimeString()}.`;
+      } else if (action === 'snooze_10') {
+        const nextTime = new Date(Date.now() + 10 * 60 * 1000);
+        await this.reminderService.createSchedule(reminder.id, nextTime);
+        botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${nextTime.toLocaleTimeString()}.`;
+      } else {
+        botResponse = "Got it!";
+      }
+
+      await this.whatsappService.sendMessage(userPhone, botResponse);
+      await this.userContextService.pushMessage(reminder.userId, 'assistant', botResponse);
+    } catch (error) {
+      this.logger.error('Error handling button reply:', error);
     }
   }
 

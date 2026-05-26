@@ -43,7 +43,12 @@ export class NotificationService {
       switch (user.preferredContactMethod) {
         case 'whatsapp':
           if (user.phone) {
-            await this.whatsappService.sendMessage(user.phone, message);
+            const buttons = [
+              { id: `done:${schedule.id}`, title: 'Done ✅' },
+              { id: `snooze_5:${schedule.id}`, title: 'Snooze 5 min' },
+              { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
+            ];
+            await this.whatsappService.sendInteractiveMessage(user.phone, message, buttons);
             sent = true;
           }
           break;

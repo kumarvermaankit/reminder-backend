@@ -111,6 +111,11 @@ export class WhatsappController {
       }
 
       const reminder = schedule.reminder;
+
+      // Load user for timezone-aware display
+      const reminderUser = await this.userService.getUserById(reminder.userId);
+      const tz = reminderUser?.timezone || 'UTC';
+
       let botResponse: string;
 
       if (action === 'done') {
@@ -136,11 +141,13 @@ export class WhatsappController {
       } else if (action === 'snooze_5') {
         const nextTime = new Date(Date.now() + 5 * 60 * 1000);
         await this.reminderService.createSchedule(reminder.id, nextTime);
-        botResponse = `⏰ Snoozed "${reminder.title}" for 5 minutes. I'll remind you again at ${nextTime.toLocaleTimeString()}.`;
+        const timeStr = nextTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+        botResponse = `⏰ Snoozed "${reminder.title}" for 5 minutes. I'll remind you again at ${timeStr}.`;
       } else if (action === 'snooze_10') {
         const nextTime = new Date(Date.now() + 10 * 60 * 1000);
         await this.reminderService.createSchedule(reminder.id, nextTime);
-        botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${nextTime.toLocaleTimeString()}.`;
+        const timeStr = nextTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+        botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${timeStr}.`;
       } else {
         botResponse = "Got it!";
       }
@@ -742,7 +749,7 @@ export class WhatsappController {
                   source: 'whatsapp'
                 }
               });
-              const timeStr = this.formatRelativeTime(reminderDate);
+              const timeStr = this.formatRelativeTime(reminderDate, user.timezone);
               const repeatInfo = parsed.intervalMinutes
                 ? ` (repeats every ${parsed.intervalMinutes} min)`
                 : '';
@@ -901,16 +908,24 @@ export class WhatsappController {
     return cityMap[loc] || null;
   }
 
-  private formatRelativeTime(date: Date): string {
+  private formatRelativeTime(date: Date, timezone: string = 'UTC'): string {
     const now = Date.now();
     const diffMs = date.getTime() - now;
     const diffMin = Math.round(diffMs / 60000);
     const diffHrs = Math.round(diffMs / 3600000);
 
+    const timeStr = date.toLocaleTimeString('en-US', {
+      timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+
     if (diffMin < 1) return 'in less than a minute';
     if (diffMin < 60) return `in ${diffMin} minutes`;
-    if (diffHrs < 24) return `today at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    if (diffHrs < 48) return `tomorrow at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    if (diffHrs < 24) return `today at ${timeStr}`;
+    if (diffHrs < 48) return `tomorrow at ${timeStr}`;
+    return date.toLocaleDateString('en-US', {
+      timeZone: timezone,
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 }

@@ -64,9 +64,11 @@ export class UserService {
       return false;
     }
 
-    const now = new Date();
-    const currentTime = now.toTimeString().slice(0, 5); // HH:mm format
-    
+    const localStr = new Date().toLocaleTimeString('en-GB', {
+      timeZone: user.timezone, hour: '2-digit', minute: '2-digit',
+    });
+    const currentTime = localStr; // HH:mm format in user's timezone
+
     const startTime = user.quietHoursStart;
     const endTime = user.quietHoursEnd;
     
@@ -81,7 +83,14 @@ export class UserService {
   // Get user's local time
   getUserLocalTime(user: User): Date {
     const now = new Date();
-    return new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: user.timezone,
+      hour: 'numeric', minute: 'numeric', second: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+    const getVal = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
+    const h = getVal('hour'), m = getVal('minute'), s = getVal('second');
+    return new Date(1970, 0, 1, h, m, s);
   }
 
   // Get today's local date (YYYY-MM-DD) for a user

@@ -293,6 +293,18 @@ export class SimpleAiService {
 
   
   // Provider-specific methods
+  private adjustDateForTimezone(dateStr: string, timezone?: string): Date {
+    const date = new Date(dateStr);
+    if (!timezone || dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-')) {
+      return date;
+    }
+    // AI output naive datetime — interpret as user's local time, convert to UTC
+    const localStr = date.toLocaleString('en-CA', { timeZone: timezone });
+    const localDate = new Date(localStr + 'Z');
+    const offsetMs = localDate.getTime() - date.getTime();
+    return new Date(date.getTime() - offsetMs);
+  }
+
   private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string): Promise<ParsedReminder> {
     const tzInfo = timezone ? ` (${timezone})` : '';
     const prompt = `Parse this user message: "${userInput}"
@@ -376,7 +388,7 @@ Rules:
     
     // Convert string date to Date object
     if (parsed.reminderDate) {
-      parsed.reminderDate = new Date(parsed.reminderDate);
+      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
     }
 
     return parsed;
@@ -408,7 +420,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const parsed = JSON.parse(content);
     
     if (parsed.reminderDate) {
-      parsed.reminderDate = new Date(parsed.reminderDate);
+      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
     }
     
     return parsed;
@@ -429,7 +441,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
-    if (parsed.reminderDate) parsed.reminderDate = new Date(parsed.reminderDate);
+    if (parsed.reminderDate) parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
     return parsed;
   }
 
@@ -454,7 +466,7 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words 
     // Extract JSON from the response (handle markdown code blocks)
     const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
-    if (parsed.reminderDate) parsed.reminderDate = new Date(parsed.reminderDate);
+    if (parsed.reminderDate) parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
     return parsed;
   }
 

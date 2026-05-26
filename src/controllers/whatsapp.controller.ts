@@ -8,6 +8,7 @@ import { NoteService } from '../services/note.service';
 import { PasswordService } from '../services/password.service';
 import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
+import { WORKFLOWS } from '../constants/workflows';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -231,6 +232,15 @@ export class WhatsappController {
       const pendingReminders = await this.reminderService.getPendingRemindersForUser(user.id);
       this.logger.log(`User has ${pendingReminders.length} pending reminders`);
 
+      // Handle simple greetings without AI call
+      const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
+      if (greetingMatch && user.name !== 'there') {
+        const botMsg = `Hi ${user.name}! 😊 How can I help you today? You can set a reminder, save a note, save a password, or create a todo list.`;
+        await this.whatsappService.sendMessage(userPhone, botMsg);
+        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+        return;
+      }
+
       // Parse message via AI with full context
       this.logger.log('Parsing message via AI...');
       const parsed = await this.aiService.parseReminderInput(
@@ -436,6 +446,15 @@ export class WhatsappController {
           } else {
             botResponse = "Which service's password would you like to retrieve?";
           }
+          break;
+        }
+
+        case 'system_query': {
+          const workflowsResponse = await this.aiService.generateBasicResponse(
+            `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,
+            undefined,
+          );
+          botResponse = workflowsResponse;
           break;
         }
 

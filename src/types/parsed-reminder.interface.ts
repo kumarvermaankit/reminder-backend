@@ -1,4 +1,4 @@
-export type ActionType = 'create_reminder' | 'complete_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'create_todo' | 'add_todo_item' | 'get_todo' | 'complete_todo_item' | 'unknown';
+export type ActionType = 'create_reminder' | 'complete_reminder' | 'save_note' | 'get_note' | 'save_password' | 'get_password' | 'create_todo' | 'add_todo_item' | 'get_todo' | 'complete_todo_item' | 'system_query' | 'unknown';
 
 export interface ParsedReminder {
   actionType?: ActionType;

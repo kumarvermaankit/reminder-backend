@@ -2,6 +2,7 @@ import { Controller, Post, Body, Get, Param } from '@nestjs/common';
 import { AiService } from '../services/ai.service';
 import { ReminderService } from '../services/reminder.service';
 import { UserService } from '../services/user.service';
+import { WORKFLOWS } from '../constants/workflows';
 
 @Controller('chat')
 export class ChatController {
@@ -40,8 +41,13 @@ export class ChatController {
       
       // Static response based on what we parsed
       let response = "I'm not sure I understood that.";
-      
-      if (parsedReminder.needsClarification && parsedReminder.clarificationQuestion) {
+
+      if (parsedReminder.actionType === 'system_query') {
+        response = await this.aiService.generateBasicResponse(
+          `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,
+          undefined,
+        );
+      } else if (parsedReminder.needsClarification && parsedReminder.clarificationQuestion) {
         response = parsedReminder.clarificationQuestion;
       } else if (parsedReminder.confidence > 0.3 && parsedReminder.title) {
         response = `Got it! I'll help with that.`;

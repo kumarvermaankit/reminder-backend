@@ -289,7 +289,8 @@ First, determine the actionType:
 - "add_todo_item" = user wants to add items to a list ("add milk to shopping list", "add buy eggs to groceries"). If multiple items are given (comma-separated, "and" separated, or sequential), put them all in todoItemContents.
 - "get_todo" = user wants to see a list ("show my shopping list", "what's on my todo list")
 - "complete_todo_item" = user wants to mark a todo item as done ("done with milk", "check off eggs from shopping list")
-- "unknown" = casual chat, greeting, or question not related to any action
+- "system_query" = user is asking about the system's capabilities ("what can you do?", "how to set a reminder", "how to save a password", "can you save passwords", "is my password protected", "how do todo lists work") or simple greetings ("hi", "hello", "hey", "good morning")
+- "unknown" = casual chat not related to any action and not a system query
 
 Use the conversation history and pending reminders above to understand context. For "complete_reminder", the reminder ID MUST be a real ID from the pending reminders list — never invent one.
 
@@ -304,7 +305,7 @@ CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transf
 
 Return JSON with:
 {
-  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|unknown",
+  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|system_query|unknown",
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
@@ -362,7 +363,7 @@ Rules:
     
     const prompt = `Parse: "${userInput}"
 Current time: ${new Date().toISOString()}${tzInfo}
-Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown.
+Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, system_query, unknown.
 Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount`;
 
     const response = await model.generateContent(prompt);
@@ -393,7 +394,7 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, unknown. Return valid JSON.' },
+        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, system_query, unknown. Return valid JSON.' },
         { role: 'user', content: `Parse: "${userInput}". Current time: ${new Date().toISOString()}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, intervalMinutes, maxReminderCount` }
       ],
       temperature: 0.3,

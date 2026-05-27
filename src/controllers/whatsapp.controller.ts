@@ -347,7 +347,7 @@ export class WhatsappController {
       const parsed = await this.aiService.parseReminderInput(
         message, user.id, user.timezone, conversation, pendingReminders, msgTimestamp,
       );
-      this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}`);
+      this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, reminderDate=${parsed.reminderDate || 'null'}`);
 
       // Save user's name if AI extracted one
       if (parsed.userName && (user.name === 'there' || user.name.startsWith('WhatsApp User'))) {
@@ -745,12 +745,13 @@ export class WhatsappController {
             try {
               // If no start date but recurring, first reminder fires after one interval
               const nowRef = msgTimestamp || new Date();
-              this.logger.log(`Fallback nowRef=${nowRef.toISOString()}`);
+              this.logger.log(`nowRef=${nowRef.toISOString()} parsed.reminderDate=${parsed.reminderDate || 'MISSING'} intervalMinutes=${parsed.intervalMinutes || 0}`);
               const reminderDate = parsed.reminderDate
                 ? new Date(parsed.reminderDate)
                 : parsed.intervalMinutes
                   ? new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000)
                   : new Date(nowRef.getTime() + 10 * 60 * 1000);
+              this.logger.log(`Computed reminderDate=${reminderDate.toISOString()}`);
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,

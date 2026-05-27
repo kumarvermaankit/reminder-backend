@@ -745,13 +745,13 @@ export class WhatsappController {
             try {
               // If no start date but recurring, first reminder fires after one interval
               const nowRef = msgTimestamp || new Date();
-              this.logger.log(`nowRef=${nowRef.toISOString()} parsed.reminderDate=${parsed.reminderDate || 'MISSING'} intervalMinutes=${parsed.intervalMinutes || 0}`);
               const reminderDate = parsed.reminderDate
                 ? new Date(parsed.reminderDate)
                 : parsed.intervalMinutes
                   ? new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000)
                   : new Date(nowRef.getTime() + 10 * 60 * 1000);
-              this.logger.log(`Computed reminderDate=${reminderDate.toISOString()}`);
+              const diffMs = reminderDate.getTime() - nowRef.getTime();
+              this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,

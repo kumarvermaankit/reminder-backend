@@ -297,8 +297,12 @@ export class SimpleAiService {
 
   
   // Provider-specific methods
-  private adjustDateForTimezone(dateStr: string, timezone?: string): Date {
+  private adjustDateForTimezone(dateStr: string, timezone?: string): Date | null {
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      this.logger.warn(`adjustDateForTimezone: invalid date string "${dateStr}"`);
+      return null;
+    }
     if (!timezone) return date;
 
     // If the AI output includes a non-UTC offset (e.g. +05:30 matching user's timezone),
@@ -411,6 +415,7 @@ Rules:
     // Convert string date to Date object
     if (parsed.reminderDate) {
       parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      if (!parsed.reminderDate) delete parsed.reminderDate;
     }
 
     return parsed;
@@ -445,6 +450,7 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
     
     if (parsed.reminderDate) {
       parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      if (!parsed.reminderDate) delete parsed.reminderDate;
     }
     
     return parsed;
@@ -466,7 +472,10 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
-    if (parsed.reminderDate) parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+    if (parsed.reminderDate) {
+      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      if (!parsed.reminderDate) delete parsed.reminderDate;
+    }
     return parsed;
   }
 

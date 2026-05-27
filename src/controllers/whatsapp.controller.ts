@@ -745,7 +745,7 @@ export class WhatsappController {
             try {
               // If no start date but recurring, first reminder fires after one interval
               const nowRef = msgTimestamp || new Date();
-              const reminderDate = parsed.reminderDate
+              const reminderDate = parsed.reminderDate && !isNaN(new Date(parsed.reminderDate).getTime())
                 ? new Date(parsed.reminderDate)
                 : parsed.intervalMinutes
                   ? new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000)

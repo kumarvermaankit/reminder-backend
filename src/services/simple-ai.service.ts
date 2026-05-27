@@ -299,10 +299,16 @@ export class SimpleAiService {
   // Provider-specific methods
   private adjustDateForTimezone(dateStr: string, timezone?: string): Date {
     const date = new Date(dateStr);
-    if (!timezone || dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-')) {
-      return date;
-    }
-    // AI output naive datetime — interpret as user's local time, convert to UTC
+    if (!timezone) return date;
+
+    // If the AI output includes a non-UTC offset (e.g. +05:30 matching user's timezone),
+    // it correctly handled timezone — return as-is.
+    const hasNonUtcOffset = /[+-](?!00:?00)\d{2}:?\d{2}/.test(dateStr);
+    if (hasNonUtcOffset) return date;
+
+    // Otherwise the AI either returned a naive date (no tz info) or used Z/+0000.
+    // AI thinks the time value (e.g. 22:20 for "10:20 PM") is UTC, but the user
+    // meant local time. Convert: treat the value as local time → UTC.
     const localStr = date.toLocaleString('en-CA', { timeZone: timezone });
     const localDate = new Date(localStr + 'Z');
     const offsetMs = localDate.getTime() - date.getTime();

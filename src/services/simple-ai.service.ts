@@ -318,10 +318,16 @@ export class SimpleAiService {
     // AI thinks the time value (e.g. 22:20 for "10:20 PM") is UTC, but the user
     // meant local time. Convert: treat the value as local time → UTC.
     const localStr = date.toLocaleString('en-CA', { timeZone: timezone });
-    const localDate = new Date(localStr + 'Z');
+    // en-CA format: "YYYY-MM-DD HH:mm:ss" — use T separator for ISO
+    const localT = localStr.includes('T') ? localStr : localStr.replace(' ', 'T');
+    const localDate = new Date(localT + 'Z');
+    if (isNaN(localDate.getTime())) {
+      this.logger.error(`adjustDateForTimezone: failed to parse local date "${localT}Z"`);
+      return null;
+    }
     const offsetMs = localDate.getTime() - date.getTime();
     const result = new Date(date.getTime() - offsetMs);
-    this.logger.log(`adjustDateForTimezone: "${dateStr}" (${date.toISOString()}) → local ${localStr} → offset ${offsetMs}ms → UTC ${result.toISOString()}`);
+    this.logger.log(`adjustDateForTimezone: "${dateStr}" (${date.toISOString()}) → local ${localStr} → offset ${Math.round(offsetMs / 60000)}min → UTC ${result.toISOString()}`);
     return result;
   }
 

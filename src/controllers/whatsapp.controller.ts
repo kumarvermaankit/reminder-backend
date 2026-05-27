@@ -84,6 +84,7 @@ export class WhatsappController {
       const msgTimestamp = message.timestamp
         ? new Date(parseInt(message.timestamp) * 1000)
         : new Date();
+      this.logger.log(`WhatsApp msgTimestamp raw=${message.timestamp} parsed=${msgTimestamp.toISOString()}`);
 
       if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
         await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
@@ -743,11 +744,13 @@ export class WhatsappController {
             this.logger.log(`Creating reminder...`);
             try {
               // If no start date but recurring, first reminder fires after one interval
+              const nowRef = msgTimestamp || new Date();
+              this.logger.log(`Fallback nowRef=${nowRef.toISOString()}`);
               const reminderDate = parsed.reminderDate
                 ? new Date(parsed.reminderDate)
                 : parsed.intervalMinutes
-                  ? new Date(Date.now() + parsed.intervalMinutes * 60 * 1000)
-                  : new Date(Date.now() + 10 * 60 * 1000);
+                  ? new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000)
+                  : new Date(nowRef.getTime() + 10 * 60 * 1000);
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,

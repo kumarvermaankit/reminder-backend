@@ -300,7 +300,7 @@ export class SimpleAiService {
   private adjustDateForTimezone(dateStr: string, timezone?: string): Date | null {
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) {
-      this.logger.warn(`adjustDateForTimezone: invalid date string "${dateStr}"`);
+      this.logger.warn(`AI returned unparseable reminderDate: "${dateStr}"`);
       return null;
     }
     if (!timezone) return date;
@@ -410,8 +410,16 @@ Rules:
       throw new Error('No response from Groq');
     }
 
-    const parsed = JSON.parse(content);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      this.logger.error(`parseWithGroq: failed to parse AI response: "${content}"`);
+      throw new Error('Invalid JSON from AI');
+    }
     
+    this.logger.log(`parseWithGroq raw reminderDate="${parsed.reminderDate}"`);
+
     // Convert string date to Date object
     if (parsed.reminderDate) {
       parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);

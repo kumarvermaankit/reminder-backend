@@ -305,10 +305,14 @@ export class SimpleAiService {
     }
     if (!timezone) return date;
 
-    // If the AI output includes a non-UTC offset (e.g. +05:30 matching user's timezone),
+    // If the AI returned a date with a non-UTC offset at the end (e.g. +05:30),
     // it correctly handled timezone — return as-is.
-    const hasNonUtcOffset = /[+-](?!00:?00)\d{2}:?\d{2}/.test(dateStr);
-    if (hasNonUtcOffset) return date;
+    // The regex only matches offset patterns at the string end, not date portions like -05-27.
+    const hasNonUtcOffset = /[+-]\d{2}:?\d{2}$/.test(dateStr) && !/([+-]00:?00)$/.test(dateStr);
+    if (hasNonUtcOffset) {
+      this.logger.log(`adjustDateForTimezone: non-UTC offset detected, returning as-is: ${date.toISOString()}`);
+      return date;
+    }
 
     // Otherwise the AI either returned a naive date (no tz info) or used Z/+0000.
     // AI thinks the time value (e.g. 22:20 for "10:20 PM") is UTC, but the user
@@ -316,7 +320,9 @@ export class SimpleAiService {
     const localStr = date.toLocaleString('en-CA', { timeZone: timezone });
     const localDate = new Date(localStr + 'Z');
     const offsetMs = localDate.getTime() - date.getTime();
-    return new Date(date.getTime() - offsetMs);
+    const result = new Date(date.getTime() - offsetMs);
+    this.logger.log(`adjustDateForTimezone: "${dateStr}" (${date.toISOString()}) → local ${localStr} → offset ${offsetMs}ms → UTC ${result.toISOString()}`);
+    return result;
   }
 
   private formatLocalTime(nowISO: string, timezone?: string): string {

@@ -183,6 +183,15 @@ export class WhatsappController {
         this.logger.log(`Found existing user ${user.id}`);
       }
 
+      // Auto-detect timezone from WhatsApp message timestamp + greeting
+      if (user.timezone === 'UTC' && msgTimestamp) {
+        const inferred = this.userService.inferTimezone(msgTimestamp, message);
+        if (inferred && inferred !== 'UTC') {
+          this.logger.log(`Inferred timezone "${inferred}" for user ${user.id} from message timestamp + greeting`);
+          user = await this.userService.updateUser(user.id, { timezone: inferred });
+        }
+      }
+
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
 
@@ -346,13 +355,15 @@ export class WhatsappController {
         user.name = parsed.userName;
       }
 
-      // Resolve "daily"/"today" list references to the date-based title
+      // Resolve date-based list references to the proper daily list title
       if (parsed.todoListTitle) {
         const lower = parsed.todoListTitle.toLowerCase();
-        if (lower === 'daily' || lower === 'today' || lower === "today's" || lower === 'todolist' || lower === 'todo') {
-          parsed.todoListTitle = new Date().toLocaleDateString('en-US', {
-            timeZone: user.timezone, month: 'long', day: 'numeric',
-          });
+        if (/^(daily|today|today's|todolist|todo)$/.test(lower)) {
+          parsed.todoListTitle = this.userService.dailyListTitle(user.timezone, 0);
+        } else if (/^(yesterday|yesterday's|yday)$/.test(lower)) {
+          parsed.todoListTitle = this.userService.dailyListTitle(user.timezone, -1);
+        } else if (/^(tomorrow|tomorrow's)$/.test(lower)) {
+          parsed.todoListTitle = this.userService.dailyListTitle(user.timezone, 1);
         }
       }
 
@@ -440,6 +451,7 @@ export class WhatsappController {
                       description: `In ${parsed.todoListTitle} list`,
                       reminderDate: parsed.reminderDate,
                       todoItemId: saved.id,
+                      msgTimestamp,
                     });
                   }
                 }
@@ -476,6 +488,7 @@ export class WhatsappController {
                     description: `In ${listTitle} list`,
                     reminderDate: parsed.reminderDate,
                     todoItemId: saved.id,
+                    msgTimestamp,
                   });
                 }
               }
@@ -740,6 +753,7 @@ export class WhatsappController {
                 title: parsed.title,
                 description: parsed.description,
                 reminderDate,
+                msgTimestamp,
                 isCompleted: false,
                 isPersistent: !!parsed.intervalMinutes,
                 reminderInterval: parsed.intervalMinutes || 0,

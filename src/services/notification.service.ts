@@ -117,30 +117,37 @@ private formatReminderMessage(title: string, description: string, userName: stri
       const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
       const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
 
-      // Title = today's date in text format (e.g. "May 26")
-      const dateTitle = new Date().toLocaleDateString('en-US', {
-        timeZone: user.timezone, month: 'long', day: 'numeric',
-      });
+      // Use a helper to format date-based list titles
+      const dailyTitle = (offset: number) =>
+        new Date(Date.now() + offset * 86400000).toLocaleDateString('en-US', {
+          timeZone: user.timezone, month: 'long', day: 'numeric',
+        }) + ' Daily List';
 
-      // Auto-create daily todo list if it doesn't already exist
-      let dailyList = await this.todoListService.findListByTitle(user.id, dateTitle);
-      if (!dailyList) {
-        dailyList = await this.todoListService.createList(user.id, dateTitle);
+      // Pre-create yesterday, today, and tomorrow lists so they always exist
+      for (const offset of [-1, 0, 1]) {
+        const title = dailyTitle(offset);
+        const existing = await this.todoListService.findListByTitle(user.id, title);
+        if (!existing) {
+          await this.todoListService.createList(user.id, title);
+        }
       }
 
-      const itemCount = dailyList.items?.filter(i => !i.isCompleted)?.length || 0;
+      const todayTitle = dailyTitle(0);
+      const todayList = await this.todoListService.findListByTitle(user.id, todayTitle);
+
+      const itemCount = todayList?.items?.filter(i => !i.isCompleted)?.length || 0;
       const listStatus = itemCount > 0
-        ? `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your *${dateTitle}* list already.`
-        : `Your *${dateTitle}* list is ready and waiting for today's tasks!`;
+        ? `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your *${todayTitle}* list already.`
+        : `Your *${todayTitle}* list is ready and waiting for today's tasks!`;
 
       const message = [
         `☀️ Good morning, ${greeting}!`,
         '',
         listStatus,
         '',
-        `Tell me what you need to do today and I'll add it to your *${dateTitle}* list with reminders if you'd like.`,
+        `Tell me what you need to do today and I'll add it to your *${todayTitle}* list with reminders if you'd like.`,
         '',
-        `Example: "add review PR to ${dateTitle} list remind me at 3pm"`,
+        `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
         'Or just list your tasks and I\'ll figure it out!',
       ].join('\n');
 

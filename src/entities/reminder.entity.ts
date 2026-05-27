@@ -23,6 +23,9 @@ export class Reminder {
   @Column('datetime')
   reminderDate: Date;
 
+  @Column({ name: 'msg_timestamp', type: 'datetime', nullable: true })
+  msgTimestamp: Date; // Original WhatsApp message timestamp (UTC)
+
   @Column({ default: false })
   isCompleted: boolean;
 

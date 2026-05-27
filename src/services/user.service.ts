@@ -115,4 +115,48 @@ export class UserService {
       return nowMin >= promptMin;
     });
   }
+
+  // Infer timezone from message timestamp + greeting
+  inferTimezone(msgTimestamp: Date, message: string): string | null {
+    const lower = message.toLowerCase();
+    let localHourGuess: number | null = null;
+
+    if (/^(good\s*)?morning|g'morning|gm\b/.test(lower)) localHourGuess = 8;
+    else if (/^(good\s*)?afternoon|good\s*ay/.test(lower)) localHourGuess = 14;
+    else if (/^(good\s*)?evening/.test(lower)) localHourGuess = 18;
+    else if (/^(good\s*)?night|gn\b/.test(lower)) localHourGuess = 22;
+    else return null;
+
+    const utcHour = msgTimestamp.getUTCHours();
+    let offsetHours = localHourGuess - utcHour;
+    if (offsetHours > 12) offsetHours -= 24;
+    if (offsetHours < -12) offsetHours += 24;
+
+    const offsetMap: Record<string, string> = {
+      '-12': 'Etc/GMT+12', '-11': 'Pacific/Pago_Pago', '-10': 'Pacific/Honolulu',
+      '-9': 'America/Anchorage', '-8': 'America/Los_Angeles', '-7': 'America/Denver',
+      '-6': 'America/Chicago', '-5': 'America/New_York', '-4': 'America/Halifax',
+      '-3': 'America/Argentina/Buenos_Aires', '-2': 'Etc/GMT+2', '-1': 'Atlantic/Azores',
+      '0': 'UTC', '1': 'Europe/Paris', '2': 'Europe/Helsinki', '3': 'Europe/Moscow',
+      '4': 'Asia/Dubai', '5': 'Asia/Karachi', '5.5': 'Asia/Kolkata',
+      '6': 'Asia/Dhaka', '7': 'Asia/Bangkok', '8': 'Asia/Shanghai',
+      '9': 'Asia/Tokyo', '10': 'Australia/Sydney', '11': 'Pacific/Noumea',
+      '12': 'Pacific/Auckland',
+    };
+
+    // Round to nearest 0.5
+    const rounded = Math.round(offsetHours * 2) / 2;
+    const key = String(rounded);
+    return offsetMap[key] || 'UTC';
+  }
+
+  // Format a date offset (days from today) as a daily list title
+  dailyListTitle(timezone: string, daysOffset: number = 0): string {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    const dateStr = date.toLocaleDateString('en-US', {
+      timeZone: timezone, month: 'long', day: 'numeric',
+    });
+    return `${dateStr} Daily List`;
+  }
 }

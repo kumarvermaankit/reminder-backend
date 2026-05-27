@@ -755,7 +755,7 @@ export class WhatsappController {
               const created = await this.reminderService.createReminder({
                 userId: user.id,
                 title: parsed.title,
-                description: parsed.description,
+                description: parsed.description || parsed.title || '',
                 reminderDate,
                 msgTimestamp,
                 isCompleted: false,

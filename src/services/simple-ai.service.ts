@@ -309,13 +309,22 @@ export class SimpleAiService {
     return new Date(date.getTime() - offsetMs);
   }
 
+  private formatLocalTime(nowISO: string, timezone?: string): string {
+    if (!timezone) return nowISO;
+    const now = new Date(nowISO);
+    return now.toLocaleString('en-US', {
+      timeZone: timezone, weekday: 'long', year: 'numeric',
+      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+    }) + ` (${timezone})`;
+  }
+
   private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const tzInfo = timezone ? ` (${timezone})` : '';
-    const currentTime = nowISO || new Date().toISOString();
-    
+    const nowStr = nowISO || new Date().toISOString();
+    const localTime = this.formatLocalTime(nowStr, timezone);
+
     const prompt = `Parse this user message: "${userInput}"
-    
-Current date: ${currentTime}${tzInfo}
+
+Current local time: ${localTime}
 
 First, determine the actionType:
 - "create_reminder" = user wants a new reminder for something
@@ -351,7 +360,7 @@ Return JSON with:
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime (for create_reminder, and optionally for add_todo_item/create_todo to set a timed reminder on a todo item). If interval is given but no start time, set to now + intervalMinutes.",
+  "reminderDate": "ISO datetime in user's local time WITHOUT timezone suffix (for create_reminder, and optionally for add_todo_item/create_todo). Example: if user says '10:15 PM' and local time shows ~10:12 PM, return '2026-05-27T22:15:00' — NOT '2026-05-27T22:15:00Z'. If interval is given but no start time, set to now + intervalMinutes.",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -372,7 +381,8 @@ Return JSON with:
 Rules:
 - Do NOT ask for clarification about start time if intervalMinutes is set. The first reminder fires after one interval.
 - morning=9am, afternoon=2pm, evening=6pm, night=8pm;
-- Use EXACT user words for title — no transformations`;
+- Use EXACT user words for title — no transformations
+- CRITICAL: reminderDate must NOT have a timezone suffix (no Z, no +05:30). Use local time only.`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -402,13 +412,14 @@ Rules:
 
   private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
-    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
-    const currentTime = nowISO || new Date().toISOString();
-    
+    const nowStr = nowISO || new Date().toISOString();
+    const localTime = this.formatLocalTime(nowStr, timezone);
+
     const prompt = `Parse: "${userInput}"
-Current time: ${currentTime}${tzInfo}
+Current local time: ${localTime}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount`;
+Return JSON with actionType, reminderId, title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no Z, no +05:30).`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -434,13 +445,13 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
   }
 
   private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const tzInfo = timezone ? ` User timezone: ${timezone}` : '';
-    const currentTime = nowISO || new Date().toISOString();
+    const nowStr = nowISO || new Date().toISOString();
+    const localTime = this.formatLocalTime(nowStr, timezone);
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current time: ${currentTime}${tzInfo}. Return JSON with actionType, reminderId, title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount` }
+        { role: 'user', content: `Parse: "${userInput}". Current local time: ${localTime}. Return JSON with actionType, reminderId, title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount. reminderDate must NOT have timezone suffix (no Z, no +05:30).` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -454,14 +465,14 @@ Return JSON with actionType, reminderId, title, description, reminderDate (ISO),
   }
 
   private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const tzInfo = timezone ? ` (${timezone})` : '';
-    const currentTime = nowISO || new Date().toISOString();
+    const nowStr = nowISO || new Date().toISOString();
+    const localTime = this.formatLocalTime(nowStr, timezone);
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
-Current date: ${currentTime}${tzInfo}
+Current local time: ${localTime}
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (ISO), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
-Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title.`;
+Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title. reminderDate MUST NOT have timezone suffix (no Z, no +05:30).`;
 
     const response = await provider.client.run(provider.models.parsing, {
       input: {

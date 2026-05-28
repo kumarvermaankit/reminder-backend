@@ -338,22 +338,43 @@ export class SimpleAiService {
     }
   }
 
-  private formatLocalTime(nowISO: string, timezone?: string): string {
-    if (!timezone) return nowISO;
-    const now = new Date(nowISO);
-    return now.toLocaleString('en-US', {
-      timeZone: timezone, weekday: 'long', year: 'numeric',
-      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
-    }) + ` (${timezone})`;
+  private utcNowStr(nowISO?: string): string {
+    return (nowISO || new Date().toISOString()).replace('Z', '') + 'Z';
+  }
+
+  private tzOffsetMinutes(timezone?: string): string {
+    if (!timezone) return 'UTC+00:00';
+    // Hardcoded common offsets — safe fallback since server Intl may lack ICU data
+    const known: Record<string, string> = {
+      'Asia/Kolkata': 'UTC+05:30',
+      'Asia/Kathmandu': 'UTC+05:45',
+      'Asia/Dhaka': 'UTC+06:00',
+      'Asia/Singapore': 'UTC+08:00',
+      'Asia/Shanghai': 'UTC+08:00',
+      'Asia/Tokyo': 'UTC+09:00',
+      'Asia/Dubai': 'UTC+04:00',
+      'Asia/Riyadh': 'UTC+03:00',
+      'Asia/Bangkok': 'UTC+07:00',
+      'America/New_York': 'UTC-05:00',
+      'America/Chicago': 'UTC-06:00',
+      'America/Denver': 'UTC-07:00',
+      'America/Los_Angeles': 'UTC-08:00',
+      'Europe/London': 'UTC+01:00',
+      'Europe/Paris': 'UTC+02:00',
+      'Europe/Berlin': 'UTC+02:00',
+      'Australia/Sydney': 'UTC+11:00',
+      'Pacific/Auckland': 'UTC+13:00',
+    };
+    return known[timezone] || 'UTC+00:00';
   }
 
   private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = nowISO || new Date().toISOString();
-    const localTime = this.formatLocalTime(nowStr, timezone);
+    const nowStr = this.utcNowStr(nowISO);
+    const tzStr = this.tzOffsetMinutes(timezone);
 
     const prompt = `Parse this user message: "${userInput}"
 
-Current local time: ${localTime}
+Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
 
 First, determine the actionType:
 - "create_reminder" = user wants a new reminder for something
@@ -389,7 +410,7 @@ Return JSON with:
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime in user's local time WITHOUT timezone suffix (for create_reminder, and optionally for add_todo_item/create_todo). Example: if user says '10:15 PM' and local time shows ~10:12 PM, return '2026-05-27T22:15:00' — NOT '2026-05-27T22:15:00Z'. If interval is given but no start time, set to now + intervalMinutes.",
+  "reminderDate": "ISO datetime in UTC WITH Z suffix (for create_reminder, and optionally for add_todo_item/create_todo). Convert user's local time to UTC using the timezone offset above. Example: if user says '10:15 PM' in UTC+05:30 and current UTC is 2026-05-27T16:42:00Z, compute 10:15 PM IST = UTC 16:45, return '2026-05-27T16:45:00Z'. If interval is given but no start time, set to now + intervalMinutes (UTC).",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -411,7 +432,7 @@ Rules:
 - Do NOT ask for clarification about start time if intervalMinutes is set. The first reminder fires after one interval.
 - morning=9am, afternoon=2pm, evening=6pm, night=8pm;
 - Use EXACT user words for title — no transformations
-- CRITICAL: reminderDate must NOT have a timezone suffix (no Z, no +05:30). Use local time only.`;
+- CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC. Example: 10:15 PM in UTC+05:30 → "2026-05-27T16:45:00Z".`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -450,14 +471,14 @@ Rules:
 
   private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
-    const nowStr = nowISO || new Date().toISOString();
-    const localTime = this.formatLocalTime(nowStr, timezone);
+    const nowStr = this.utcNowStr(nowISO);
+    const tzStr = this.tzOffsetMinutes(timezone);
 
     const prompt = `Parse: "${userInput}"
-Current local time: ${localTime}
+Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
-CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no Z, no +05:30).`;
+Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC using the timezone offset. Example: 10:15 PM in UTC+05:30 with current UTC 16:42Z → "2026-05-27T16:45:00Z".`;
 
     const response = await model.generateContent(prompt);
     console.log(response.response.text());
@@ -485,13 +506,13 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
   }
 
   private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = nowISO || new Date().toISOString();
-    const localTime = this.formatLocalTime(nowStr, timezone);
+    const nowStr = this.utcNowStr(nowISO);
+    const tzStr = this.tzOffsetMinutes(timezone);
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current local time: ${localTime}. Return JSON with actionType, reminderId, title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount. reminderDate must NOT have timezone suffix (no Z, no +05:30).` }
+        { role: 'user', content: `Parse: "${userInput}". Current UTC time: ${nowStr} | User's timezone: ${timezone || 'UTC'} (${tzStr}). Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount. reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC.` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -509,14 +530,14 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
   }
 
   private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = nowISO || new Date().toISOString();
-    const localTime = this.formatLocalTime(nowStr, timezone);
+    const nowStr = this.utcNowStr(nowISO);
+    const tzStr = this.tzOffsetMinutes(timezone);
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
-Current local time: ${localTime}
+Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (local ISO without Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
-Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title. reminderDate MUST NOT have timezone suffix (no Z, no +05:30).`;
+Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title. reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC using the timezone offset.`;
 
     const response = await provider.client.run(provider.models.parsing, {
       input: {

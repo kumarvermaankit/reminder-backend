@@ -298,43 +298,44 @@ export class SimpleAiService {
   
   // Provider-specific methods
   private adjustDateForTimezone(dateStr: string, timezone?: string): Date | null {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      this.logger.warn(`AI returned unparseable reminderDate: "${dateStr}"`);
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        this.logger.warn(`adjustDateForTimezone: unparseable: "${dateStr}"`);
+        return null;
+      }
+      if (!timezone) return date;
+
+      // If the AI returned a date with a non-UTC offset at the end (e.g. +05:30),
+      // it correctly handled timezone — return as-is.
+      const hasNonUtcOffset = /[+-]\d{2}:?\d{2}$/.test(dateStr) && !/([+-]00:?00)$/.test(dateStr);
+      if (hasNonUtcOffset) {
+        this.logger.log(`adjustDateForTimezone: non-UTC offset, as-is: ${date.toISOString()}`);
+        return date;
+      }
+
+      // Convert: AI's time value is in UTC, treat it as user's local time → compute UTC
+      const parts = Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      }).formatToParts(date);
+      const getPart = (t: string) => parts.find(p => p.type === t)?.value || '00';
+      const localISO = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
+      const localDate = new Date(localISO + 'Z');
+      if (isNaN(localDate.getTime())) {
+        this.logger.error(`adjustDateForTimezone: bad local "${localISO}Z"`);
+        return null;
+      }
+      const offsetMs = localDate.getTime() - date.getTime();
+      const result = new Date(date.getTime() - offsetMs);
+      this.logger.log(`adjustDateForTimezone: "${dateStr}" → local ${localISO} → offset ${Math.round(offsetMs / 60000)}min → UTC ${result.toISOString()}`);
+      return result;
+    } catch (e: any) {
+      this.logger.error(`adjustDateForTimezone: error for "${dateStr}" tz=${timezone}: ${e.message}`);
       return null;
     }
-    if (!timezone) return date;
-
-    // If the AI returned a date with a non-UTC offset at the end (e.g. +05:30),
-    // it correctly handled timezone — return as-is.
-    // The regex only matches offset patterns at the string end, not date portions like -05-27.
-    const hasNonUtcOffset = /[+-]\d{2}:?\d{2}$/.test(dateStr) && !/([+-]00:?00)$/.test(dateStr);
-    if (hasNonUtcOffset) {
-      this.logger.log(`adjustDateForTimezone: non-UTC offset detected, returning as-is: ${date.toISOString()}`);
-      return date;
-    }
-
-    // Otherwise the AI either returned a naive date (no tz info) or used Z/+0000.
-    // AI thinks the time value (e.g. 22:20 for "10:20 PM") is UTC, but the user
-    // meant local time. Convert: treat the value as local time → UTC.
-    // Use Intl.DateTimeFormat.formatToParts for reliable component extraction
-    const parts = Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const getPart = (t: string) => parts.find(p => p.type === t)?.value || '00';
-    const localISO = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
-    const localDate = new Date(localISO + 'Z');
-    if (isNaN(localDate.getTime())) {
-      this.logger.error(`adjustDateForTimezone: failed to parse local date from parts: "${localISO}Z"`);
-      return null;
-    }
-    const offsetMs = localDate.getTime() - date.getTime();
-    const result = new Date(date.getTime() - offsetMs);
-    this.logger.log(`adjustDateForTimezone: "${dateStr}" → local ${localISO} → offset ${Math.round(offsetMs / 60000)}min → UTC ${result.toISOString()}`);
-    return result;
   }
 
   private formatLocalTime(nowISO: string, timezone?: string): string {
@@ -473,6 +474,7 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
     content = content.trim();
     
     const parsed = JSON.parse(content);
+    this.logger.log(`parseWithGemini raw reminderDate="${parsed.reminderDate}"`);
     
     if (parsed.reminderDate) {
       parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
@@ -498,6 +500,7 @@ CRITICAL: reminderDate must be in user's local time WITHOUT timezone suffix (no 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
+    this.logger.log(`parseWithTogether raw reminderDate="${parsed.reminderDate}"`);
     if (parsed.reminderDate) {
       parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
       if (!parsed.reminderDate) delete parsed.reminderDate;
@@ -527,7 +530,11 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words 
     // Extract JSON from the response (handle markdown code blocks)
     const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
-    if (parsed.reminderDate) parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+    this.logger.log(`parseWithReplicate raw reminderDate="${parsed.reminderDate}"`);
+    if (parsed.reminderDate) {
+      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      if (!parsed.reminderDate) delete parsed.reminderDate;
+    }
     return parsed;
   }
 

@@ -770,7 +770,7 @@ export class WhatsappController {
                   source: 'whatsapp'
                 }
               });
-              const timeStr = this.formatRelativeTime(reminderDate, user.timezone);
+              const timeStr = this.formatRelativeTime(reminderDate, user.timezone, nowRef);
               const repeatInfo = parsed.intervalMinutes
                 ? ` (repeats every ${parsed.intervalMinutes} min)`
                 : '';
@@ -929,8 +929,8 @@ export class WhatsappController {
     return cityMap[loc] || null;
   }
 
-  private formatRelativeTime(date: Date, timezone: string = 'UTC'): string {
-    const now = Date.now();
+  private formatRelativeTime(date: Date, timezone: string = 'UTC', nowRef?: Date): string {
+    const now = nowRef?.getTime() ?? Date.now();
     const diffMs = date.getTime() - now;
     const diffMin = Math.round(diffMs / 60000);
     const diffHrs = Math.round(diffMs / 3600000);

@@ -771,7 +771,8 @@ export class WhatsappController {
                   source: 'whatsapp'
                 }
               });
-              const timeStr = this.formatRelativeTime(reminderDate, user.timezone, nowRef);
+              const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
+              const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
               const repeatInfo = parsed.intervalMinutes
                 ? ` (repeats every ${parsed.intervalMinutes} min)`
                 : '';
@@ -930,24 +931,92 @@ export class WhatsappController {
     return cityMap[loc] || null;
   }
 
+  private static readonly DISPLAY_TIMEZONES = [
+    'Asia/Kolkata', 'Asia/Kathmandu', 'Asia/Dhaka', 'Asia/Karachi', 'Asia/Dubai',
+    'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul',
+    'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'America/New_York',
+    'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+    'Australia/Sydney', 'Pacific/Auckland', 'UTC',
+  ];
+
+  private localDateKey(d: Date, timeZone: string): string {
+    return d.toLocaleDateString('en-CA', { timeZone });
+  }
+
+  private calendarDayDiff(fromKey: string, toKey: string): number {
+    const from = new Date(`${fromKey}T12:00:00Z`);
+    const to = new Date(`${toKey}T12:00:00Z`);
+    return Math.round((to.getTime() - from.getTime()) / 86400000);
+  }
+
+  /** When profile timezone is UTC, pick IANA zone that best matches msg vs reminder calendar. */
+  private resolveDisplayTimezone(
+    userTimezone: string,
+    msgRef: Date,
+    targetDate: Date,
+  ): string {
+    if (userTimezone && userTimezone !== 'UTC') return userTimezone;
+
+    let bestTz = 'UTC';
+    let bestScore = -1;
+
+    for (const timeZone of WhatsappController.DISPLAY_TIMEZONES) {
+      if (timeZone === 'UTC') continue;
+      const dayDiff = this.calendarDayDiff(
+        this.localDateKey(msgRef, timeZone),
+        this.localDateKey(targetDate, timeZone),
+      );
+      if (dayDiff < 0 || dayDiff > 14) continue;
+
+      let score = dayDiff === 1 ? 20 : dayDiff === 0 ? 12 : dayDiff <= 7 ? 4 : 0;
+      const localHour = Number(
+        targetDate.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
+      );
+      if (localHour >= 7 && localHour <= 22) score += 5;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTz = timeZone;
+      }
+    }
+    return bestTz;
+  }
+
   private formatRelativeTime(date: Date, timezone: string = 'UTC', nowRef?: Date): string {
-    const now = nowRef?.getTime() ?? Date.now();
-    const diffMs = date.getTime() - now;
+    const now = nowRef || new Date();
+    const diffMs = date.getTime() - now.getTime();
     const diffMin = Math.round(diffMs / 60000);
-    const diffHrs = Math.round(diffMs / 3600000);
 
     const timeStr = date.toLocaleTimeString('en-US', {
-      timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
     });
 
-    if (diffMin < 1) return 'in less than a minute';
-    if (diffMin < 60) return `in ${diffMin} minutes`;
-    if (diffHrs < 24) return `today at ${timeStr}`;
-    if (diffHrs < 48) return `tomorrow at ${timeStr}`;
+    const dayDiff = this.calendarDayDiff(
+      this.localDateKey(now, timezone),
+      this.localDateKey(date, timezone),
+    );
+
+    if (dayDiff === 0) {
+      if (diffMin < 1) return 'in less than a minute';
+      if (diffMin < 60) return `in ${diffMin} minutes`;
+      return `today at ${timeStr}`;
+    }
+    if (dayDiff === 1) return `tomorrow at ${timeStr}`;
+    if (dayDiff > 1 && dayDiff <= 7) {
+      const weekday = date.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long' });
+      return `on ${weekday} at ${timeStr}`;
+    }
     return date.toLocaleDateString('en-US', {
       timeZone: timezone,
-      weekday: 'short', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
     });
   }
 }

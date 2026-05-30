@@ -4,20 +4,26 @@ import { TodoListService } from './todo-list.service';
 import { UserContextService } from './user-context.service';
 import { UserService } from './user.service';
 
-/** Slash commands registered on the business phone (type "/" in chat). */
 export const CHAT_COMMANDS: WhatsAppChatCommand[] = [
   { command_name: 'view_list', command_description: "View today's to-do list" },
   { command_name: 'lists', command_description: 'View all your lists' },
+  { command_name: 'create_list', command_description: 'Create a list and add items' },
   { command_name: 'help', command_description: 'What this assistant can do' },
   { command_name: 'menu', command_description: 'Open the slide-up menu' },
 ];
 
-/** Row ids for interactive list messages (list_reply webhook). */
 export const MENU_ROW = {
   viewList: 'menu_view_list',
   allLists: 'menu_all_lists',
+  createList: 'menu_create_list',
   help: 'menu_help',
   openList: (listId: string) => `list_open:${listId}`,
+} as const;
+
+export const CREATE_BTN = {
+  addItem: 'create_add_item',
+  finish: 'create_finish',
+  viewList: 'create_view_list',
 } as const;
 
 @Injectable()
@@ -36,8 +42,7 @@ export class ListWorkflowService implements OnModuleInit {
     const ok = await this.registerChatCommands();
     if (!ok) {
       this.logger.warn(
-        'Chat commands not registered at startup. Call POST /whatsapp/setup/commands after deploy, ' +
-          'or set commands in WhatsApp Manager → Phone number → Automations → Commands.',
+        'Chat commands not registered at startup. Call POST /whatsapp/setup/commands after deploy.',
       );
     }
   }
@@ -46,7 +51,14 @@ export class ListWorkflowService implements OnModuleInit {
     return this.whatsappService.configureConversationalCommands(CHAT_COMMANDS);
   }
 
-  /** Slide-up interactive list (tap "Menu" on the message). */
+  isWorkflowButton(buttonId: string): boolean {
+    return (
+      buttonId === CREATE_BTN.addItem ||
+      buttonId === CREATE_BTN.finish ||
+      buttonId === CREATE_BTN.viewList
+    );
+  }
+
   async sendSlideUpMenu(userPhone: string, userId: string): Promise<void> {
     const body = 'What would you like to do?';
     await this.whatsappService.sendInteractiveListMessage(
@@ -55,22 +67,27 @@ export class ListWorkflowService implements OnModuleInit {
       'Menu',
       [
         {
-          title: 'Quick actions',
+          title: 'Lists',
           rows: [
+            {
+              id: MENU_ROW.createList,
+              title: 'Create list',
+              description: 'New list + add items',
+            },
             {
               id: MENU_ROW.viewList,
               title: "Today's list",
-              description: 'View your daily to-do list',
+              description: 'View daily to-do',
             },
             {
               id: MENU_ROW.allLists,
               title: 'All lists',
-              description: 'Browse or open a list',
+              description: 'Browse your lists',
             },
             {
               id: MENU_ROW.help,
               title: 'Help',
-              description: 'Reminders, lists, notes',
+              description: 'Tips & commands',
             },
           ],
         },
@@ -80,14 +97,140 @@ export class ListWorkflowService implements OnModuleInit {
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
-  /** @returns true if user asked for menu (skip AI) */
   async handleMenuText(userPhone: string, userId: string, message: string): Promise<boolean> {
-    if (!/^(menu)$/i.test(message.trim())) return false;
-    await this.sendSlideUpMenu(userPhone, userId);
-    return true;
+    const t = message.trim().toLowerCase();
+    if (t === 'menu') {
+      await this.sendSlideUpMenu(userPhone, userId);
+      return true;
+    }
+    if (t === 'create list' || t === 'new list') {
+      await this.startCreateList(userPhone, userId);
+      return true;
+    }
+    return false;
   }
 
-  /** @returns true if message was a slash command (skip AI) */
+  /** Active create-list wizard (skip AI). */
+  async handleCreateWorkflow(
+    userPhone: string,
+    userId: string,
+    message: string,
+  ): Promise<boolean> {
+    const workflow = await this.userContextService.getListWorkflow(userId);
+    if (!workflow) return false;
+
+    const trimmed = message.trim();
+    if (/^cancel$/i.test(trimmed)) {
+      await this.userContextService.clearListWorkflow(userId);
+      const body = 'Cancelled. Type *menu* when you need the menu again.';
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+
+    if (workflow.state === 'awaiting_create_name') {
+      const title = trimmed.slice(0, 80);
+      if (!title) {
+        await this.whatsappService.sendMessage(userPhone, 'Please send a list name, or *cancel*.');
+        return true;
+      }
+      const list = await this.todoListService.createList(userId, title);
+      await this.userContextService.setListWorkflow(userId, {
+        state: 'adding_create_items',
+        listId: list.id,
+        listTitle: list.title,
+        itemCount: 0,
+        awaitingItemInput: false,
+      });
+      const body =
+        `📁 Created *${list.title}*.\n\n` +
+        `Send items as messages (one per line, or comma-separated).\n` +
+        `Or tap *Add item* below, then type each item. Tap *Finish* when done.`;
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      await this.sendCreateItemButtons(userPhone, userId, list.title, 0);
+      return true;
+    }
+
+    if (workflow.state === 'adding_create_items' && workflow.listId && workflow.listTitle) {
+      const items = this.parseItemLines(trimmed);
+      if (items.length === 0) {
+        await this.whatsappService.sendMessage(
+          userPhone,
+          'Send an item name, several comma-separated items, or tap *Finish*.',
+        );
+        return true;
+      }
+
+      let count = workflow.itemCount || 0;
+      for (const content of items) {
+        await this.todoListService.addItem(workflow.listId, userId, content);
+        count++;
+      }
+
+      await this.userContextService.setListWorkflow(userId, {
+        ...workflow,
+        itemCount: count,
+        awaitingItemInput: false,
+      });
+
+      const added =
+        items.length === 1
+          ? `✅ Added *${items[0]}*`
+          : `✅ Added ${items.length} items`;
+      await this.whatsappService.sendMessage(
+        userPhone,
+        `${added} to *${workflow.listTitle}* (${count} total). Send more or tap a button below:`,
+      );
+      await this.sendCreateItemButtons(userPhone, userId, workflow.listTitle, count);
+      return true;
+    }
+
+    return false;
+  }
+
+  async handleButton(userPhone: string, userId: string, buttonId: string): Promise<boolean> {
+    if (!this.isWorkflowButton(buttonId)) return false;
+
+    const workflow = await this.userContextService.getListWorkflow(userId);
+    if (!workflow || workflow.state !== 'adding_create_items' || !workflow.listId) {
+      await this.whatsappService.sendMessage(
+        userPhone,
+        'No list creation in progress. Type *menu* → *Create list* to start.',
+      );
+      return true;
+    }
+
+    if (buttonId === CREATE_BTN.addItem) {
+      await this.userContextService.setListWorkflow(userId, {
+        ...workflow,
+        awaitingItemInput: true,
+      });
+      const body = `Type the item to add to *${workflow.listTitle}*.\n\n_You can also send several items separated by commas._`;
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+
+    if (buttonId === CREATE_BTN.viewList) {
+      await this.sendSingleList(userPhone, userId, workflow.listId);
+      await this.sendCreateItemButtons(
+        userPhone,
+        userId,
+        workflow.listTitle,
+        workflow.itemCount || 0,
+      );
+      return true;
+    }
+
+    if (buttonId === CREATE_BTN.finish) {
+      await this.finishCreateList(userPhone, userId, workflow.listId, workflow.listTitle);
+      return true;
+    }
+
+    return false;
+  }
+
   async handleSlashCommand(
     userPhone: string,
     userId: string,
@@ -105,16 +248,17 @@ export class ListWorkflowService implements OnModuleInit {
       await this.sendSlideUpMenu(userPhone, userId);
       return true;
     }
-
+    if (cmd === 'create_list') {
+      await this.startCreateList(userPhone, userId);
+      return true;
+    }
     if (cmd === 'view_list' || cmd === 'lists' || cmd === 'help') {
       await this.runMenuAction(cmd, userPhone, userId, timezone);
       return true;
     }
-
     return false;
   }
 
-  /** @returns true if list_reply row was handled */
   async handleListReply(
     userPhone: string,
     userId: string,
@@ -123,6 +267,10 @@ export class ListWorkflowService implements OnModuleInit {
   ): Promise<boolean> {
     this.logger.log(`List menu selection: ${rowId} from user ${userId}`);
 
+    if (rowId === MENU_ROW.createList) {
+      await this.startCreateList(userPhone, userId);
+      return true;
+    }
     if (rowId === MENU_ROW.viewList) {
       await this.runMenuAction('view_list', userPhone, userId, timezone);
       return true;
@@ -136,12 +284,67 @@ export class ListWorkflowService implements OnModuleInit {
       return true;
     }
     if (rowId.startsWith('list_open:')) {
-      const listId = rowId.slice('list_open:'.length);
-      await this.sendSingleList(userPhone, userId, listId);
+      await this.sendSingleList(userPhone, userId, rowId.slice('list_open:'.length));
       return true;
     }
-
     return false;
+  }
+
+  private async startCreateList(userPhone: string, userId: string): Promise<void> {
+    await this.userContextService.setListWorkflow(userId, { state: 'awaiting_create_name' });
+    const body =
+      '📝 *Create a new list*\n\n' +
+      'What should we call it?\n' +
+      '(e.g. Groceries, Packing, Work tasks)\n\n' +
+      '_Reply with the name, or type *cancel*._';
+    await this.whatsappService.sendMessage(userPhone, body);
+    await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  private async sendCreateItemButtons(
+    userPhone: string,
+    userId: string,
+    listTitle: string,
+    itemCount: number,
+  ): Promise<void> {
+    const body =
+      `*${listTitle}* — ${itemCount} item${itemCount === 1 ? '' : 's'} so far.\n` +
+      `Keep sending items, or choose:`;
+    await this.whatsappService.sendInteractiveMessage(userPhone, body, [
+      { id: CREATE_BTN.addItem, title: '➕ Add item' },
+      { id: CREATE_BTN.finish, title: '✅ Finish' },
+      { id: CREATE_BTN.viewList, title: '📋 View list' },
+    ]);
+    await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  private async finishCreateList(
+    userPhone: string,
+    userId: string,
+    listId: string,
+    listTitle: string,
+  ): Promise<void> {
+    await this.userContextService.clearListWorkflow(userId);
+    try {
+      const list = await this.todoListService.getList(listId, userId);
+      const body =
+        `🎉 *${listTitle}* is ready!\n\n${this.todoListService.formatList(list)}\n\n` +
+        `_Add more anytime: "add … to ${listTitle}"_`;
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+    } catch {
+      await this.whatsappService.sendMessage(userPhone, `✅ Finished *${listTitle}*. Type *menu* for more.`);
+    }
+  }
+
+  /** Split "milk, eggs" or multiline into separate items. */
+  private parseItemLines(text: string): string[] {
+    const parts = text.includes('\n')
+      ? text.split('\n')
+      : text.includes(',')
+        ? text.split(',')
+        : [text];
+    return parts.map((s) => s.trim()).filter((s) => s.length > 0).slice(0, 20);
   }
 
   private async runMenuAction(
@@ -163,13 +366,12 @@ export class ListWorkflowService implements OnModuleInit {
     }
   }
 
-  /** Second-level slide-up: pick a list to open (max 10). */
   private async sendListsSlideUpMenu(userPhone: string, userId: string): Promise<void> {
     const lists = await this.todoListService.getLists(userId);
     if (lists.length === 0) {
       const body =
         "You don't have any lists yet.\n\n" +
-        'Say *"start a groceries list"* or *"add milk to shopping"* — same as chatting normally.';
+        'Type *menu* → *Create list*, or say *"start a groceries list"* in chat.';
       await this.whatsappService.sendMessage(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return;
@@ -222,13 +424,13 @@ export class ListWorkflowService implements OnModuleInit {
 
   private async sendHelp(userPhone: string, userId: string): Promise<void> {
     const body =
-      '*Menu* — type *menu* or /menu for the slide-up picker\n' +
-      '*Commands* — type / for view_list, lists, help\n\n' +
+      '*Menu* — type *menu* for slide-up options\n' +
+      '*Create list* — menu → Create list, or /create_list\n' +
+      '*Add items* — send one per message, or comma-separated\n\n' +
       '*Or chat naturally:*\n' +
       '• "remind me to call mom at 3pm"\n' +
       '• "add eggs to shopping list"\n' +
-      '• "show my shopping list"\n' +
-      '• "remember my wifi password is ..."';
+      '• "show my shopping list"';
     await this.whatsappService.sendMessage(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }

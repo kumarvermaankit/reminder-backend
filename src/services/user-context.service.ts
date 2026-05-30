@@ -13,6 +13,16 @@ export interface PendingListSelection {
   itemTargets?: string[];
 }
 
+/** Guided create-list flow (name → add multiple items via buttons). */
+export interface ListWorkflow {
+  state: 'awaiting_create_name' | 'adding_create_items';
+  listId?: string;
+  listTitle?: string;
+  itemCount?: number;
+  /** User tapped "Add item" — next text is an item (not a new list name). */
+  awaitingItemInput?: boolean;
+}
+
 @Injectable()
 export class UserContextService {
   private readonly logger = new Logger(UserContextService.name);
@@ -62,6 +72,24 @@ export class UserContextService {
       ctx.pendingListSelection = null;
       await this.repo.save(ctx);
     }
+  }
+
+  async setListWorkflow(userId: string, workflow: ListWorkflow | null): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (!ctx) {
+      ctx = this.repo.create({ userId, conversation: [] });
+    }
+    ctx.listWorkflow = workflow;
+    await this.repo.save(ctx);
+  }
+
+  async getListWorkflow(userId: string): Promise<ListWorkflow | null> {
+    const ctx = await this.repo.findOne({ where: { userId } });
+    return ctx?.listWorkflow || null;
+  }
+
+  async clearListWorkflow(userId: string): Promise<void> {
+    await this.setListWorkflow(userId, null);
   }
 
   async clear(userId: string): Promise<void> {

@@ -147,6 +147,23 @@ export class WhatsappController {
     replyToMsgId?: string,
   ) {
     try {
+      if (this.listWorkflowService.isWorkflowButton(buttonReply.id)) {
+        let user = await this.userService.getUserByPhone(userPhone);
+        if (!user) {
+          user = await this.userService.createUser({
+            phone: userPhone,
+            name: 'there',
+            email: `user_${userPhone}@reminder.app`,
+            preferredContactMethod: 'whatsapp',
+            timezone: 'UTC',
+            isActive: true,
+          });
+        }
+        await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
+        await this.listWorkflowService.handleButton(userPhone, user.id, buttonReply.id);
+        return;
+      }
+
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -253,7 +270,10 @@ export class WhatsappController {
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
 
-      // Slide-up menu ("menu") or slash commands (/) — before onboarding / AI
+      // Create-list wizard, menu, slash commands — before onboarding / AI
+      if (await this.listWorkflowService.handleCreateWorkflow(userPhone, user.id, message)) {
+        return;
+      }
       if (await this.listWorkflowService.handleMenuText(userPhone, user.id, message)) {
         return;
       }

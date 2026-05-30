@@ -10,7 +10,7 @@ import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
 import { ListWorkflowService } from '../services/list-workflow.service';
 import { WORKFLOWS } from '../constants/workflows';
-import { appendChatTips } from '../constants/chat-tips';
+import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -423,9 +423,8 @@ export class WhatsappController {
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
-        const botMsg = appendChatTips(
-          `Hi ${user.name}! 😊 How can I help you today?\n\n` +
-            `Set a reminder, save notes or passwords, or manage lists — chat naturally or use *menu*.`,
+        const botMsg = appendChatTipsDetailed(
+          `Hi ${user.name}! 😊 How can I help you today?`,
         );
         await this.sendAssistantReply(userPhone, user.id, botMsg, false);
         return;
@@ -874,13 +873,16 @@ export class WhatsappController {
           } else if (parsed.needsClarification && parsed.clarificationQuestion) {
             botResponse = parsed.clarificationQuestion;
           } else {
-            botResponse =
-              "I'm not sure I understood that. Check the examples below, or type *menu* for the slide-up picker.";
+            botResponse = appendChatTipsDetailed(
+              "I'm not sure I understood that. Say what you need in your own words — see examples below.",
+            );
           }
         }
       }
 
-      await this.sendAssistantReply(userPhone, user.id, botResponse);
+      const withCompactTips =
+        botResponse.includes('Examples you can try') ? false : true;
+      await this.sendAssistantReply(userPhone, user.id, botResponse, withCompactTips);
 
     } catch (error) {
       this.logger.error('Error processing WhatsApp message:', error);

@@ -147,6 +147,8 @@ export class UserService {
     // Round to nearest 0.5
     const rounded = Math.round(offsetHours * 2) / 2;
     const key = String(rounded);
+    console.log("key", key);
+    console.log("offsetMap[key]", offsetMap[key]);
     return offsetMap[key] || 'UTC';
   }
 

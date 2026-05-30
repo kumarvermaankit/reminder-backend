@@ -183,7 +183,8 @@ export class WhatsappController {
       } else {
         this.logger.log(`Found existing user ${user.id}`);
       }
-
+      
+      console.log("msgTimestamp", msgTimestamp);
       // Auto-detect timezone from WhatsApp message timestamp + greeting
       if (user.timezone === 'UTC' && msgTimestamp) {
         const inferred = this.userService.inferTimezone(msgTimestamp, message);

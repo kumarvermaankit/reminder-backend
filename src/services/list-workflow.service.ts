@@ -3,6 +3,7 @@ import { WhatsappService, WhatsAppChatCommand } from './whatsapp.service';
 import { TodoListService } from './todo-list.service';
 import { UserContextService } from './user-context.service';
 import { UserService } from './user.service';
+import { appendChatTips } from '../constants/chat-tips';
 
 export const CHAT_COMMANDS: WhatsAppChatCommand[] = [
   { command_name: 'view_list', command_description: "View today's to-do list" },
@@ -330,10 +331,9 @@ export class ListWorkflowService implements OnModuleInit {
       const body =
         `🎉 *${listTitle}* is ready!\n\n${this.todoListService.formatList(list)}\n\n` +
         `_Add more anytime: "add … to ${listTitle}"_`;
-      await this.whatsappService.sendMessage(userPhone, body);
-      await this.userContextService.pushMessage(userId, 'assistant', body);
+      await this.sendWithTips(userPhone, userId, body);
     } catch {
-      await this.whatsappService.sendMessage(userPhone, `✅ Finished *${listTitle}*. Type *menu* for more.`);
+      await this.sendWithTips(userPhone, userId, `✅ Finished *${listTitle}*. Type *menu* for more.`);
     }
   }
 
@@ -423,14 +423,15 @@ export class ListWorkflowService implements OnModuleInit {
   }
 
   private async sendHelp(userPhone: string, userId: string): Promise<void> {
-    const body =
-      '*Menu* — type *menu* for slide-up options\n' +
-      '*Create list* — menu → Create list, or /create_list\n' +
-      '*Add items* — send one per message, or comma-separated\n\n' +
-      '*Or chat naturally:*\n' +
-      '• "remind me to call mom at 3pm"\n' +
-      '• "add eggs to shopping list"\n' +
-      '• "show my shopping list"';
+    const body = appendChatTips(
+      'Here’s a quick overview. Use *menu* for the slide-up picker, or */create_list* to start the list wizard.',
+    );
+    await this.whatsappService.sendMessage(userPhone, body);
+    await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  private async sendWithTips(userPhone: string, userId: string, text: string): Promise<void> {
+    const body = appendChatTips(text);
     await this.whatsappService.sendMessage(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }

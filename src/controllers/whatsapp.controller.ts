@@ -10,6 +10,7 @@ import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
 import { ListWorkflowService } from '../services/list-workflow.service';
 import { WORKFLOWS } from '../constants/workflows';
+import { appendChatTips } from '../constants/chat-tips';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -415,20 +416,18 @@ export class WhatsappController {
           await this.todoListService.deleteList(selectedId, user.id);
           selRes = `🗑️ Deleted "${pendingSelection.title}" list!`;
         }
-        await this.whatsappService.sendMessage(userPhone, selRes);
-        await this.userContextService.pushMessage(user.id, 'assistant', selRes);
+        await this.sendAssistantReply(userPhone, user.id, selRes);
         return;
       }
 
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
-        const botMsg =
+        const botMsg = appendChatTips(
           `Hi ${user.name}! 😊 How can I help you today?\n\n` +
-          `Set a reminder, manage lists, or save notes — just chat naturally.\n` +
-          `Type *menu* for the slide-up picker, or */* for quick commands.`;
-        await this.whatsappService.sendMessage(userPhone, botMsg);
-        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+            `Set a reminder, save notes or passwords, or manage lists — chat naturally or use *menu*.`,
+        );
+        await this.sendAssistantReply(userPhone, user.id, botMsg, false);
         return;
       }
 
@@ -875,18 +874,23 @@ export class WhatsappController {
           } else if (parsed.needsClarification && parsed.clarificationQuestion) {
             botResponse = parsed.clarificationQuestion;
           } else {
-            botResponse = "I'm not sure I understood that. You can:\n• Set a reminder (\"remind me to...\")\n• Save a note (\"remember that...\")\n• Save a password (\"save my ... password as...\")\n• Create a todo list (\"start a shopping list\")";
+            botResponse =
+              "I'm not sure I understood that. Check the examples below, or type *menu* for the slide-up picker.";
           }
         }
       }
 
-      // Send bot response and push to conversation history
-      await this.whatsappService.sendMessage(userPhone, botResponse);
-      await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
+      await this.sendAssistantReply(userPhone, user.id, botResponse);
 
     } catch (error) {
       this.logger.error('Error processing WhatsApp message:', error);
-      await this.whatsappService.sendMessage(userPhone, "Sorry, I had trouble processing that. Please try again!");
+      const user = await this.userService.getUserByPhone(userPhone);
+      const errMsg = appendChatTips('Sorry, I had trouble processing that. Please try again!');
+      if (user) {
+        await this.sendAssistantReply(userPhone, user.id, errMsg, false);
+      } else {
+        await this.whatsappService.sendMessage(userPhone, errMsg);
+      }
     }
   }
 
@@ -1041,6 +1045,18 @@ export class WhatsappController {
     };
     const loc = location.toLowerCase().trim();
     return cityMap[loc] || null;
+  }
+
+  /** Send text to user; appends example tips by default. */
+  private async sendAssistantReply(
+    userPhone: string,
+    userId: string,
+    text: string,
+    withTips = true,
+  ): Promise<void> {
+    const body = withTips ? appendChatTips(text) : text;
+    await this.whatsappService.sendMessage(userPhone, body);
+    await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
   private static readonly DISPLAY_TIMEZONES = [

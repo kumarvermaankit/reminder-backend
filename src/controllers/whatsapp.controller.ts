@@ -104,18 +104,6 @@ export class WhatsappController {
     replyToMsgId?: string,
   ) {
     try {
-      if (this.listWorkflowService.isListButton(buttonReply.id)) {
-        const user = await this.userService.getUserByPhone(userPhone);
-        if (user) {
-          const handled = await this.listWorkflowService.handleButton(
-            userPhone,
-            user.id,
-            buttonReply.id,
-          );
-          if (handled) return;
-        }
-      }
-
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -222,8 +210,10 @@ export class WhatsappController {
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
 
-      // Guided list workflow (Strategy A) — before onboarding / AI
-      if (await this.listWorkflowService.handleTextMessage(userPhone, user.id, message)) {
+      // Slash commands from chat menu (/) — before onboarding / AI
+      if (await this.listWorkflowService.handleSlashCommand(
+        userPhone, user.id, message, user.timezone,
+      )) {
         return;
       }
 
@@ -367,7 +357,11 @@ export class WhatsappController {
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
-        await this.listWorkflowService.sendMainMenu(userPhone, user.id, user.name);
+        const botMsg =
+          `Hi ${user.name}! 😊 How can I help you today?\n\n` +
+          `Set a reminder, manage lists, save notes, or tap *Menu* (/) for quick commands like *view_list*.`;
+        await this.whatsappService.sendMessage(userPhone, botMsg);
+        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
       }
 
@@ -486,23 +480,11 @@ export class WhatsappController {
                   }
                 }
                 const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about it.` : '';
-                await this.listWorkflowService.sendListManageMenu(
-                  userPhone,
-                  user.id,
-                  list.id,
-                  list.title,
-                  `📋 Created *${parsed.todoListTitle}* with ${items.length} items!${reminderNote}`,
-                );
-                botResponse = '';
+                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!${reminderNote}`;
               } else {
-                await this.listWorkflowService.sendListManageMenu(
-                  userPhone,
-                  user.id,
-                  list.id,
-                  list.title,
-                  `📋 List *${parsed.todoListTitle}* created successfully!`,
-                );
-                botResponse = '';
+                botResponse =
+                  `📋 Created a new list "${parsed.todoListTitle}"! ` +
+                  `Add items by saying "add ... to ${parsed.todoListTitle}".`;
               }
             } catch (e) {
               this.logger.error('Failed to create todo list:', e);
@@ -832,15 +814,34 @@ export class WhatsappController {
       }
 
       // Send bot response and push to conversation history
-      if (botResponse?.trim()) {
-        await this.whatsappService.sendMessage(userPhone, botResponse);
-        await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
-      }
+      await this.whatsappService.sendMessage(userPhone, botResponse);
+      await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
 
     } catch (error) {
       this.logger.error('Error processing WhatsApp message:', error);
       await this.whatsappService.sendMessage(userPhone, "Sorry, I had trouble processing that. Please try again!");
     }
+  }
+
+  /** One-time (or repeat) setup: register /view_list, /lists, /help on your WhatsApp number */
+  @Post('setup/commands')
+  async setupChatCommands() {
+    const ok = await this.listWorkflowService.registerChatCommands();
+    let current: unknown = null;
+    if (ok) {
+      try {
+        current = await this.whatsappService.getConversationalAutomation();
+      } catch {
+        // non-fatal
+      }
+    }
+    return {
+      success: ok,
+      message: ok
+        ? 'Chat commands registered. Users can tap Menu or type / in the chat.'
+        : 'Failed — check logs, API version (v20+), and token permissions.',
+      conversational_automation: current,
+    };
   }
 
   @Post('test/send')

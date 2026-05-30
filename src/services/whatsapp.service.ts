@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 
+export interface WhatsAppChatCommand {
+  command_name: string;
+  command_description: string;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
@@ -16,6 +21,51 @@ export class WhatsappService {
     if (!this.phoneNumberId || !this.accessToken) {
       this.logger.warn('WhatsApp credentials not configured. Messages will not be sent.');
     }
+  }
+
+  /**
+   * Register slash commands (user types "/" in chat — Meta Conversational Automation API).
+   * Not the business-profile payload; see POST /{phone-number-id}/conversational_automation
+   */
+  async configureConversationalCommands(commands: WhatsAppChatCommand[]): Promise<boolean> {
+    try {
+      if (!this.phoneNumberId || !this.accessToken) {
+        this.logger.warn('Cannot register chat commands: WhatsApp credentials missing');
+        return false;
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/${this.phoneNumberId}/conversational_automation`,
+        { commands },
+        {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const ok = response.data?.success === true;
+      if (ok) {
+        this.logger.log(`Registered ${commands.length} WhatsApp chat command(s)`);
+      }
+      return ok;
+    } catch (error) {
+      this.logger.error(
+        'Failed to register WhatsApp chat commands:',
+        error.response?.data || error.message,
+      );
+      return false;
+    }
+  }
+
+  async getConversationalAutomation(): Promise<unknown> {
+    if (!this.phoneNumberId || !this.accessToken) return null;
+    const response = await axios.get(`${this.baseUrl}/${this.phoneNumberId}`, {
+      params: { fields: 'conversational_automation' },
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+    return response.data;
   }
 
   /** Show typing + mark incoming message read (Cloud API). Auto-dismisses on reply or after ~25s. */

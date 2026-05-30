@@ -8,6 +8,7 @@ import { NoteService } from '../services/note.service';
 import { PasswordService } from '../services/password.service';
 import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
+import { ListWorkflowService } from '../services/list-workflow.service';
 import { WORKFLOWS } from '../constants/workflows';
 
 @Controller('whatsapp')
@@ -24,6 +25,7 @@ export class WhatsappController {
     private readonly passwordService: PasswordService,
     private readonly userContextService: UserContextService,
     private readonly todoListService: TodoListService,
+    private readonly listWorkflowService: ListWorkflowService,
   ) {}
 
   @Post('webhook')
@@ -102,6 +104,18 @@ export class WhatsappController {
     replyToMsgId?: string,
   ) {
     try {
+      if (this.listWorkflowService.isListButton(buttonReply.id)) {
+        const user = await this.userService.getUserByPhone(userPhone);
+        if (user) {
+          const handled = await this.listWorkflowService.handleButton(
+            userPhone,
+            user.id,
+            buttonReply.id,
+          );
+          if (handled) return;
+        }
+      }
+
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -207,6 +221,11 @@ export class WhatsappController {
 
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
+
+      // Guided list workflow (Strategy A) — before onboarding / AI
+      if (await this.listWorkflowService.handleTextMessage(userPhone, user.id, message)) {
+        return;
+      }
 
       // Onboarding: check if user hasn't set their name yet
       const greetings = ['hi', 'hello', 'hey', 'hii', 'heyy', 'start'];
@@ -348,9 +367,7 @@ export class WhatsappController {
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
-        const botMsg = `Hi ${user.name}! 😊 How can I help you today? You can set a reminder, save a note, save a password, or create a todo list.`;
-        await this.whatsappService.sendMessage(userPhone, botMsg);
-        await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+        await this.listWorkflowService.sendMainMenu(userPhone, user.id, user.name);
         return;
       }
 
@@ -469,9 +486,23 @@ export class WhatsappController {
                   }
                 }
                 const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about it.` : '';
-                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!${reminderNote}`;
+                await this.listWorkflowService.sendListManageMenu(
+                  userPhone,
+                  user.id,
+                  list.id,
+                  list.title,
+                  `📋 Created *${parsed.todoListTitle}* with ${items.length} items!${reminderNote}`,
+                );
+                botResponse = '';
               } else {
-                botResponse = `📋 Created a new list "${parsed.todoListTitle}"! Add items by saying "add ... to ${parsed.todoListTitle}".`;
+                await this.listWorkflowService.sendListManageMenu(
+                  userPhone,
+                  user.id,
+                  list.id,
+                  list.title,
+                  `📋 List *${parsed.todoListTitle}* created successfully!`,
+                );
+                botResponse = '';
               }
             } catch (e) {
               this.logger.error('Failed to create todo list:', e);
@@ -801,8 +832,10 @@ export class WhatsappController {
       }
 
       // Send bot response and push to conversation history
-      await this.whatsappService.sendMessage(userPhone, botResponse);
-      await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
+      if (botResponse?.trim()) {
+        await this.whatsappService.sendMessage(userPhone, botResponse);
+        await this.userContextService.pushMessage(user.id, 'assistant', botResponse);
+      }
 
     } catch (error) {
       this.logger.error('Error processing WhatsApp message:', error);

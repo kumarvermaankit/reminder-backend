@@ -20,6 +20,7 @@ import { PasswordService } from './services/password.service';
 import { EncryptionService } from './services/encryption.service';
 import { UserContextService } from './services/user-context.service';
 import { TodoListService } from './services/todo-list.service';
+import { ListWorkflowService } from './services/list-workflow.service';
 import { Reminder } from './entities/reminder.entity';
 import { ReminderSchedule } from './entities/reminder-schedule.entity';
 import { User } from './entities/user.entity';
@@ -48,6 +49,6 @@ import { TodoItem } from './entities/todo-item.entity';
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService],
 })
 export class AppModule {}

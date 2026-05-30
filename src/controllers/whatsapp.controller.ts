@@ -90,7 +90,7 @@ export class WhatsappController {
         await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
       } else if (message.type === 'text') {
         const text = message.text.body;
-        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp);
+        await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp, msgId);
       }
     }
   }
@@ -163,9 +163,20 @@ export class WhatsappController {
     }
   }
 
-  private async processWhatsAppMessage(userPhone: string, message: string, businessPhone: string, replyToMsgId?: string, msgTimestamp?: Date) {
+  private async processWhatsAppMessage(
+    userPhone: string,
+    message: string,
+    businessPhone: string,
+    replyToMsgId?: string,
+    msgTimestamp?: Date,
+    incomingMessageId?: string,
+  ) {
     try {
       this.logger.log(`Processing message from ${userPhone}: "${message}"`);
+
+      if (incomingMessageId) {
+        await this.whatsappService.sendTypingIndicator(incomingMessageId);
+      }
 
       let user = await this.userService.getUserByPhone(userPhone);
       

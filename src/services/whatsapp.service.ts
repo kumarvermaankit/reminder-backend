@@ -18,6 +18,43 @@ export class WhatsappService {
     }
   }
 
+  /** Show typing + mark incoming message read (Cloud API). Auto-dismisses on reply or after ~25s. */
+  async sendTypingIndicator(messageId: string): Promise<boolean> {
+    try {
+      if (!this.phoneNumberId || !this.accessToken || !messageId) {
+        return false;
+      }
+
+      const response = await axios.post(
+        `${this.baseUrl}/${this.phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: messageId,
+          typing_indicator: { type: 'text' },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const ok = response.data?.success === true;
+      if (ok) {
+        this.logger.log(`Typing indicator sent for message ${messageId}`);
+      }
+      return ok;
+    } catch (error) {
+      this.logger.warn(
+        'Typing indicator failed (non-fatal):',
+        error.response?.data || error.message,
+      );
+      return false;
+    }
+  }
+
   async sendMessage(to: string, message: string): Promise<string | null> {
     try {
       if (!message || message.trim().length === 0) {

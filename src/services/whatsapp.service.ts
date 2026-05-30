@@ -6,6 +6,17 @@ export interface WhatsAppChatCommand {
   command_description: string;
 }
 
+export interface WhatsAppListRow {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface WhatsAppListSection {
+  title: string;
+  rows: WhatsAppListRow[];
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
@@ -143,6 +154,81 @@ export class WhatsappService {
        
     } catch (error) {
       this.logger.error('Error sending WhatsApp message:', error.response?.data || error.message);
+      return null;
+    }
+  }
+
+  /** Interactive list — tap button label to open slide-up menu (max 10 rows total). */
+  async sendInteractiveListMessage(
+    to: string,
+    bodyText: string,
+    buttonLabel: string,
+    sections: WhatsAppListSection[],
+    headerText?: string,
+    footerText?: string,
+  ): Promise<string | null> {
+    try {
+      const formattedPhone = to.replace(/^\+/, '');
+      const trimmedSections = sections
+        .map((s) => ({
+          title: s.title.slice(0, 24),
+          rows: s.rows.slice(0, 10).map((r) => ({
+            id: r.id.slice(0, 200),
+            title: r.title.slice(0, 24),
+            ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+          })),
+        }))
+        .filter((s) => s.rows.length > 0)
+        .slice(0, 10);
+
+      const totalRows = trimmedSections.reduce((n, s) => n + s.rows.length, 0);
+      if (totalRows === 0 || totalRows > 10) {
+        this.logger.error(`Interactive list requires 1–10 rows, got ${totalRows}`);
+        return null;
+      }
+
+      const interactive: Record<string, unknown> = {
+        type: 'list',
+        body: { text: bodyText.slice(0, 1024) },
+        action: {
+          button: buttonLabel.slice(0, 20),
+          sections: trimmedSections,
+        },
+      };
+      if (headerText) {
+        interactive.header = { type: 'text', text: headerText.slice(0, 60) };
+      }
+      if (footerText) {
+        interactive.footer = { text: footerText.slice(0, 60) };
+      }
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: formattedPhone,
+        type: 'interactive',
+        interactive,
+      };
+
+      const response = await axios.post(
+        `${this.baseUrl}/${this.phoneNumberId}/messages`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const msgId = response.data.messages?.[0]?.id || null;
+      this.logger.log(`WhatsApp interactive list sent to ${to}: ${msgId}`);
+      return msgId;
+    } catch (error) {
+      this.logger.error(
+        'Error sending WhatsApp interactive list:',
+        error.response?.data || error.message,
+      );
       return null;
     }
   }

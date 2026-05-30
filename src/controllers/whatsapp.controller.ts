@@ -90,10 +90,53 @@ export class WhatsappController {
 
       if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
         await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
+      } else if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
+        await this.handleListReply(from, message.interactive.list_reply, msgTimestamp, msgId);
       } else if (message.type === 'text') {
         const text = message.text.body;
         await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp, msgId);
       }
+    }
+  }
+
+  private async handleListReply(
+    userPhone: string,
+    listReply: { id: string; title: string },
+    msgTimestamp?: Date,
+    incomingMessageId?: string,
+  ) {
+    try {
+      if (incomingMessageId) {
+        await this.whatsappService.sendTypingIndicator(incomingMessageId);
+      }
+
+      let user = await this.userService.getUserByPhone(userPhone);
+      if (!user) {
+        user = await this.userService.createUser({
+          phone: userPhone,
+          name: 'there',
+          email: `user_${userPhone}@reminder.app`,
+          preferredContactMethod: 'whatsapp',
+          timezone: 'UTC',
+          isActive: true,
+        });
+      }
+
+      await this.userContextService.pushMessage(user.id, 'user', `[menu] ${listReply.title}`);
+
+      const handled = await this.listWorkflowService.handleListReply(
+        userPhone,
+        user.id,
+        listReply.id,
+        user.timezone,
+      );
+      if (!handled) {
+        const body = 'Sorry, that menu option is no longer valid. Type *menu* to open the menu again.';
+        await this.whatsappService.sendMessage(userPhone, body);
+        await this.userContextService.pushMessage(user.id, 'assistant', body);
+      }
+    } catch (error) {
+      this.logger.error('Error handling list reply:', error);
     }
   }
 
@@ -210,7 +253,10 @@ export class WhatsappController {
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
 
-      // Slash commands from chat menu (/) — before onboarding / AI
+      // Slide-up menu ("menu") or slash commands (/) — before onboarding / AI
+      if (await this.listWorkflowService.handleMenuText(userPhone, user.id, message)) {
+        return;
+      }
       if (await this.listWorkflowService.handleSlashCommand(
         userPhone, user.id, message, user.timezone,
       )) {
@@ -359,7 +405,8 @@ export class WhatsappController {
       if (greetingMatch && user.name !== 'there') {
         const botMsg =
           `Hi ${user.name}! 😊 How can I help you today?\n\n` +
-          `Set a reminder, manage lists, save notes, or tap *Menu* (/) for quick commands like *view_list*.`;
+          `Set a reminder, manage lists, or save notes — just chat naturally.\n` +
+          `Type *menu* for the slide-up picker, or */* for quick commands.`;
         await this.whatsappService.sendMessage(userPhone, botMsg);
         await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
@@ -838,7 +885,7 @@ export class WhatsappController {
     return {
       success: ok,
       message: ok
-        ? 'Chat commands registered. Users can tap Menu or type / in the chat.'
+        ? 'Chat commands registered. Users can type menu, /menu, or / in the chat.'
         : 'Failed — check logs, API version (v20+), and token permissions.',
       conversational_automation: current,
     };

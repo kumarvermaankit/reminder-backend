@@ -308,12 +308,72 @@ export class SimpleAiService {
     return `TIME REFERENCE (do NOT use any timezone name, IANA zone, or profile timezone):
 - User message sent at (UTC): ${userMsgUtc}  ← this is the user's "now"; use for all relative times
 - Server time (UTC): ${serverUtc}  (processing lag ~${lagMinutes} min — use user message time, not server time)
-- Infer the user's local wall-clock from when they sent the message vs how they phrase times ("10 PM", "tomorrow morning", "in 30 min"). Do NOT apply a preconfigured timezone offset string.
-- Compare user message time with server time only to prefer the user timestamp as the anchor when scheduling.
-- For wall-clock times (e.g. "10:15 PM", "9am", morning/afternoon/evening/night): interpret on the calendar day implied by the user message time in their local frame, then convert to UTC for reminderDate.
+- Infer the user's UTC offset from when they sent the message vs the wall-clock they mention (e.g. if message is 09:44Z and they say "15:15", offset is about +05:30).
+- NEVER put the user's local hour into the UTC string. WRONG: message 2026-05-30T09:44:00Z, user wants 15:15 local → "2026-05-30T15:15:00Z". RIGHT: "2026-05-30T09:45:00Z" (subtract offset from local time to get UTC).
+- For wall-clock times: convert local → UTC before returning reminderDate.
 - For relative times ("in 5 minutes", "in 1 hour"): add to the user message UTC timestamp, not server time.
 - If only an interval is given (every X min) with no start time: reminderDate = user message UTC + intervalMinutes.
-- Output reminderDate as ISO-8601 UTC with Z suffix only (e.g. "2026-05-27T16:45:00Z").`;
+- Output reminderDate as ISO-8601 UTC with Z suffix only.`;
+  }
+
+  /** Standard UTC offsets in minutes (east positive), 15/30/45 min steps. */
+  private static readonly STANDARD_UTC_OFFSET_MINUTES = [
+    -720, -660, -600, -540, -480, -420, -360, -300, -270, -240, -210, -180, -150, -120, -90, -60, -30,
+    0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 690, 720, 780,
+  ];
+
+  private minutesOfDayUtc(d: Date): number {
+    return d.getUTCHours() * 60 + d.getUTCMinutes();
+  }
+
+  /**
+   * AI often returns local wall-clock as UTC (e.g. 15:15Z instead of 09:45Z for IST).
+   * When gap ≈ standard UTC offset and intended delay is small, fix to msgTimestamp + delay.
+   */
+  private correctReminderDateFromMsgTimestamp(msgTimestamp: Date, reminderDate: Date): Date {
+    const diffMs = reminderDate.getTime() - msgTimestamp.getTime();
+    const diffMin = diffMs / 60000;
+    if (diffMin <= 0 || diffMin > 24 * 60) return reminderDate;
+
+    let offsetMin: number | null = null;
+    for (const o of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
+      if (Math.abs(diffMin - o) <= 3) {
+        offsetMin = o;
+        break;
+      }
+    }
+    if (offsetMin === null || offsetMin === 0) return reminderDate;
+
+    const intendedDelayMin = diffMin - offsetMin;
+    if (intendedDelayMin <= 0 || intendedDelayMin > 12 * 60) return reminderDate;
+
+    const localMsgMin = (this.minutesOfDayUtc(msgTimestamp) + offsetMin + 24 * 60) % (24 * 60);
+    const remMin = this.minutesOfDayUtc(reminderDate);
+    const clockDelta = Math.min(
+      Math.abs(remMin - localMsgMin),
+      24 * 60 - Math.abs(remMin - localMsgMin),
+    );
+    if (clockDelta > 120) return reminderDate;
+
+    const corrected = new Date(msgTimestamp.getTime() + intendedDelayMin * 60 * 1000);
+    this.logger.log(
+      `corrected local-as-UTC: ${reminderDate.toISOString()} → ${corrected.toISOString()} ` +
+        `(offset=${offsetMin}min, intendedDelay=${Math.round(intendedDelayMin)}min)`,
+    );
+    return corrected;
+  }
+
+  private applyReminderDateFromMsgTimestamp(parsed: any, msgTimestamp?: Date): void {
+    if (!parsed.reminderDate || !msgTimestamp) return;
+    const rem =
+      parsed.reminderDate instanceof Date
+        ? parsed.reminderDate
+        : this.parseReminderDateUtc(String(parsed.reminderDate));
+    if (!rem) {
+      delete parsed.reminderDate;
+      return;
+    }
+    parsed.reminderDate = this.correctReminderDateFromMsgTimestamp(msgTimestamp, rem);
   }
 
   private parseReminderDateUtc(dateStr: string): Date | null {
@@ -371,7 +431,7 @@ Return JSON with:
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime in UTC WITH Z suffix (for create_reminder, and optionally for add_todo_item/create_todo). Derive from user message UTC time above: convert their local wall-clock to UTC using inferred offset from send time + phrasing—not any timezone field. Example: user message at 2026-05-27T16:42:00Z, they say '10:15 PM' same day → compute that local 22:15 as UTC and return e.g. '2026-05-27T16:45:00Z'. Relative: add duration to user message UTC. Interval-only: user message UTC + intervalMinutes.",
+  "reminderDate": "ISO datetime in UTC WITH Z suffix. Convert local wall-clock to UTC (never copy local hours into Z). Example: message 2026-05-30T09:44:00Z, user wants 15:15 local (+05:30) → '2026-05-30T09:45:00Z' NOT '2026-05-30T15:15:00Z'. Relative: add to message UTC. Interval-only: message UTC + intervalMinutes.",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -424,6 +484,7 @@ Rules:
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
     }
 
     return parsed;
@@ -458,6 +519,7 @@ CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC abo
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
     }
     
     return parsed;
@@ -482,6 +544,7 @@ CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC abo
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
     }
     return parsed;
   }
@@ -511,6 +574,7 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm relative to user messa
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
     }
     return parsed;
   }

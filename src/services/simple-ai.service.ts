@@ -474,6 +474,10 @@ Rules:
     const nowStr = this.utcNowStr(nowISO);
     const tzStr = this.tzOffsetMinutes(timezone);
 
+    console.log("timezone", timezone);
+    console.log("nowStr", nowStr);
+    console.log("tzStr", tzStr);
+
     const prompt = `Parse: "${userInput}"
 Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.

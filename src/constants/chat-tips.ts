@@ -4,6 +4,8 @@ const WHATSAPP_TEXT_MAX = 4096;
 export function getChatTipsFooter(): string {
   return [
     '',
+    ' ',
+    '─────────────',
     '💬 Chat naturally for reminders, notes, passwords, and lists — no special format needed.',
     '💡 Try: "remind me at 9am to drink water" · "remember my email is …" · "save gmail password as …"',
     '📋 Lists: "add milk to groceries" or type *menu* to Create list through buttons',

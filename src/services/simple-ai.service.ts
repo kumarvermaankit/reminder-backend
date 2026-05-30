@@ -179,9 +179,6 @@ export class SimpleAiService {
       throw new Error('No AI providers available');
     }
 
-    const now = msgTimestamp || new Date();
-    const nowISO = now.toISOString();
-
     const historyText = conversation && conversation.length > 0
       ? `\nRecent conversation:\n${conversation.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: "${m.text}"`).join('\n')}\n---`
       : '';
@@ -197,14 +194,14 @@ export class SimpleAiService {
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.parseWithGroq(provider, fullPrompt, timezone, nowISO);
+          return await this.parseWithGroq(provider, fullPrompt, msgTimestamp);
         case 'together':
         case 'deepseek':
-          return await this.parseWithTogether(provider, fullPrompt, timezone, nowISO);
+          return await this.parseWithTogether(provider, fullPrompt, msgTimestamp);
         case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, timezone, nowISO);
+          return await this.parseWithReplicate(provider, fullPrompt, msgTimestamp);
         case 'gemini':
-          return await this.parseWithGemini(provider, fullPrompt, timezone, nowISO);
+          return await this.parseWithGemini(provider, fullPrompt, msgTimestamp);
         default:
           throw new Error(`Unknown provider: ${provider.name}`);
       }
@@ -297,84 +294,48 @@ export class SimpleAiService {
 
   
   // Provider-specific methods
-  private adjustDateForTimezone(dateStr: string, timezone?: string): Date | null {
+  /** Prompt block: anchor "now" on WhatsApp msgTimestamp vs server clock — no IANA timezone. */
+  private buildReminderTimeContext(msgTimestamp?: Date): string {
+    const userMsgUtc = (msgTimestamp || new Date()).toISOString();
+    const serverUtc = new Date().toISOString();
+    const lagMinutes = Math.round(
+      (new Date(serverUtc).getTime() - new Date(userMsgUtc).getTime()) / 60000,
+    );
+    this.logger.log(
+      `reminder time context: userMsgUtc=${userMsgUtc} serverUtc=${serverUtc} lagMin=${lagMinutes}`,
+    );
+
+    return `TIME REFERENCE (do NOT use any timezone name, IANA zone, or profile timezone):
+- User message sent at (UTC): ${userMsgUtc}  ← this is the user's "now"; use for all relative times
+- Server time (UTC): ${serverUtc}  (processing lag ~${lagMinutes} min — use user message time, not server time)
+- Infer the user's local wall-clock from when they sent the message vs how they phrase times ("10 PM", "tomorrow morning", "in 30 min"). Do NOT apply a preconfigured timezone offset string.
+- Compare user message time with server time only to prefer the user timestamp as the anchor when scheduling.
+- For wall-clock times (e.g. "10:15 PM", "9am", morning/afternoon/evening/night): interpret on the calendar day implied by the user message time in their local frame, then convert to UTC for reminderDate.
+- For relative times ("in 5 minutes", "in 1 hour"): add to the user message UTC timestamp, not server time.
+- If only an interval is given (every X min) with no start time: reminderDate = user message UTC + intervalMinutes.
+- Output reminderDate as ISO-8601 UTC with Z suffix only (e.g. "2026-05-27T16:45:00Z").`;
+  }
+
+  private parseReminderDateUtc(dateStr: string): Date | null {
     try {
       const date = new Date(dateStr);
       if (isNaN(date.getTime())) {
-        this.logger.warn(`adjustDateForTimezone: unparseable: "${dateStr}"`);
+        this.logger.warn(`parseReminderDateUtc: unparseable: "${dateStr}"`);
         return null;
       }
-      if (!timezone) return date;
-
-      // If the AI returned a date with a non-UTC offset at the end (e.g. +05:30),
-      // it correctly handled timezone — return as-is.
-      const hasNonUtcOffset = /[+-]\d{2}:?\d{2}$/.test(dateStr) && !/([+-]00:?00)$/.test(dateStr);
-      if (hasNonUtcOffset) {
-        this.logger.log(`adjustDateForTimezone: non-UTC offset, as-is: ${date.toISOString()}`);
-        return date;
-      }
-
-      // Convert: AI's time value is in UTC, treat it as user's local time → compute UTC
-      const parts = Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false,
-      }).formatToParts(date);
-      const getPart = (t: string) => parts.find(p => p.type === t)?.value || '00';
-      const localISO = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
-      const localDate = new Date(localISO + 'Z');
-      if (isNaN(localDate.getTime())) {
-        this.logger.error(`adjustDateForTimezone: bad local "${localISO}Z"`);
-        return null;
-      }
-      const offsetMs = localDate.getTime() - date.getTime();
-      const result = new Date(date.getTime() - offsetMs);
-      this.logger.log(`adjustDateForTimezone: "${dateStr}" → local ${localISO} → offset ${Math.round(offsetMs / 60000)}min → UTC ${result.toISOString()}`);
-      return result;
+      return date;
     } catch (e: any) {
-      this.logger.error(`adjustDateForTimezone: error for "${dateStr}" tz=${timezone}: ${e.message}`);
+      this.logger.error(`parseReminderDateUtc: error for "${dateStr}": ${e.message}`);
       return null;
     }
   }
 
-  private utcNowStr(nowISO?: string): string {
-    return (nowISO || new Date().toISOString()).replace('Z', '') + 'Z';
-  }
-
-  private tzOffsetMinutes(timezone?: string): string {
-    if (!timezone) return 'UTC+00:00';
-    // Hardcoded common offsets — safe fallback since server Intl may lack ICU data
-    const known: Record<string, string> = {
-      'Asia/Kolkata': 'UTC+05:30',
-      'Asia/Kathmandu': 'UTC+05:45',
-      'Asia/Dhaka': 'UTC+06:00',
-      'Asia/Singapore': 'UTC+08:00',
-      'Asia/Shanghai': 'UTC+08:00',
-      'Asia/Tokyo': 'UTC+09:00',
-      'Asia/Dubai': 'UTC+04:00',
-      'Asia/Riyadh': 'UTC+03:00',
-      'Asia/Bangkok': 'UTC+07:00',
-      'America/New_York': 'UTC-05:00',
-      'America/Chicago': 'UTC-06:00',
-      'America/Denver': 'UTC-07:00',
-      'America/Los_Angeles': 'UTC-08:00',
-      'Europe/London': 'UTC+01:00',
-      'Europe/Paris': 'UTC+02:00',
-      'Europe/Berlin': 'UTC+02:00',
-      'Australia/Sydney': 'UTC+11:00',
-      'Pacific/Auckland': 'UTC+13:00',
-    };
-    return known[timezone] || 'UTC+00:00';
-  }
-
-  private async parseWithGroq(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = this.utcNowStr(nowISO);
-    const tzStr = this.tzOffsetMinutes(timezone);
+  private async parseWithGroq(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp);
 
     const prompt = `Parse this user message: "${userInput}"
 
-Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
+${timeContext}
 
 First, determine the actionType:
 - "create_reminder" = user wants a new reminder for something
@@ -410,7 +371,7 @@ Return JSON with:
   "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
   "title": "EXACT user words — no transformations (for create_reminder)",
   "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime in UTC WITH Z suffix (for create_reminder, and optionally for add_todo_item/create_todo). Convert user's local time to UTC using the timezone offset above. Example: if user says '10:15 PM' in UTC+05:30 and current UTC is 2026-05-27T16:42:00Z, compute 10:15 PM IST = UTC 16:45, return '2026-05-27T16:45:00Z'. If interval is given but no start time, set to now + intervalMinutes (UTC).",
+  "reminderDate": "ISO datetime in UTC WITH Z suffix (for create_reminder, and optionally for add_todo_item/create_todo). Derive from user message UTC time above: convert their local wall-clock to UTC using inferred offset from send time + phrasing—not any timezone field. Example: user message at 2026-05-27T16:42:00Z, they say '10:15 PM' same day → compute that local 22:15 as UTC and return e.g. '2026-05-27T16:45:00Z'. Relative: add duration to user message UTC. Interval-only: user message UTC + intervalMinutes.",
   "priority": "low|medium|high",
   "category": "work|personal|health|finance|other",
   "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
@@ -432,7 +393,7 @@ Rules:
 - Do NOT ask for clarification about start time if intervalMinutes is set. The first reminder fires after one interval.
 - morning=9am, afternoon=2pm, evening=6pm, night=8pm;
 - Use EXACT user words for title — no transformations
-- CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC. Example: 10:15 PM in UTC+05:30 → "2026-05-27T16:45:00Z".`;
+- CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor all times to user message UTC above; never use a timezone name from profile.`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -460,32 +421,25 @@ Rules:
     
     this.logger.log(`parseWithGroq raw reminderDate="${parsed.reminderDate}"`);
 
-    // Convert string date to Date object
     if (parsed.reminderDate) {
-      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
     }
 
     return parsed;
   }
 
-  private async parseWithGemini(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
+  private async parseWithGemini(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
-    const nowStr = this.utcNowStr(nowISO);
-    const tzStr = this.tzOffsetMinutes(timezone);
-
-    console.log("timezone", timezone);
-    console.log("nowStr", nowStr);
-    console.log("tzStr", tzStr);
+    const timeContext = this.buildReminderTimeContext(msgTimestamp);
 
     const prompt = `Parse: "${userInput}"
-Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
+${timeContext}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
 Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
-CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC using the timezone offset. Example: 10:15 PM in UTC+05:30 with current UTC 16:42Z → "2026-05-27T16:45:00Z".`;
+CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC above; do not use profile timezone.`;
 
     const response = await model.generateContent(prompt);
-    console.log(response.response.text());
     let content = response.response.text();
     
     // Remove markdown code blocks if present
@@ -502,21 +456,20 @@ CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to U
     this.logger.log(`parseWithGemini raw reminderDate="${parsed.reminderDate}"`);
     
     if (parsed.reminderDate) {
-      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
     }
     
     return parsed;
   }
 
-  private async parseWithTogether(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = this.utcNowStr(nowISO);
-    const tzStr = this.tzOffsetMinutes(timezone);
+  private async parseWithTogether(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp);
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}". Current UTC time: ${nowStr} | User's timezone: ${timezone || 'UTC'} (${tzStr}). Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount. reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC.` }
+        { role: 'user', content: `Parse: "${userInput}".\n${timeContext}\nReturn JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount. reminderDate MUST be UTC with Z suffix; anchor to user message UTC, not profile timezone.` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -527,21 +480,20 @@ CRITICAL: reminderDate MUST be UTC with Z suffix. Convert user's local time to U
     const parsed = JSON.parse(content);
     this.logger.log(`parseWithTogether raw reminderDate="${parsed.reminderDate}"`);
     if (parsed.reminderDate) {
-      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
     }
     return parsed;
   }
 
-  private async parseWithReplicate(provider: AIProvider, userInput: string, timezone?: string, nowISO?: string): Promise<ParsedReminder> {
-    const nowStr = this.utcNowStr(nowISO);
-    const tzStr = this.tzOffsetMinutes(timezone);
+  private async parseWithReplicate(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp);
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
-Current UTC time: ${nowStr}  |  User's timezone: ${timezone || 'UTC'} (${tzStr})
+${timeContext}
 
 Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
-Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words for title. reminderDate MUST be UTC with Z suffix. Convert user's local time to UTC using the timezone offset.`;
+Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm relative to user message local frame. Use EXACT user words for title. reminderDate MUST be UTC with Z suffix; anchor to user message UTC, not profile timezone.`;
 
     const response = await provider.client.run(provider.models.parsing, {
       input: {
@@ -557,7 +509,7 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm. Use EXACT user words 
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithReplicate raw reminderDate="${parsed.reminderDate}"`);
     if (parsed.reminderDate) {
-      parsed.reminderDate = this.adjustDateForTimezone(parsed.reminderDate, timezone);
+      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
     }
     return parsed;

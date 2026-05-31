@@ -20,12 +20,41 @@ interface AIProvider {
   costPerRequest: number;
 }
 
+type ParseStrategy = (provider: AIProvider, userInput: string, msgTimestamp?: Date) => Promise<ParsedReminder>;
+type GenerateStrategy = (provider: AIProvider, userInput: string, reminder?: ParsedReminder) => Promise<string>;
+type DetectCompletionStrategy = (provider: AIProvider, userInput: string, userReminders: any[]) => Promise<{completed: boolean, reminderId?: string, response: string}>;
+
 @Injectable()
 export class SimpleAiService {
   private readonly logger = new Logger(SimpleAiService.name);
   private providers: AIProvider[] = [];
 
+  private readonly parseStrategies: Map<string, ParseStrategy>;
+  private readonly generateStrategies: Map<string, GenerateStrategy>;
+  private readonly detectCompletionStrategies: Map<string, DetectCompletionStrategy>;
+
   constructor(private readonly configService: ConfigService) {
+    this.parseStrategies = new Map([
+      ['groq', this.parseWithGroq.bind(this)],
+      ['together', this.parseWithTogether.bind(this)],
+      ['deepseek', this.parseWithTogether.bind(this)],
+      ['replicate', this.parseWithReplicate.bind(this)],
+      ['gemini', this.parseWithGemini.bind(this)],
+    ]);
+    this.generateStrategies = new Map([
+      ['groq', this.generateWithGroq.bind(this)],
+      ['together', this.generateWithTogether.bind(this)],
+      ['deepseek', this.generateWithTogether.bind(this)],
+      ['replicate', this.generateWithReplicate.bind(this)],
+      ['gemini', this.generateWithGemini.bind(this)],
+    ]);
+    this.detectCompletionStrategies = new Map([
+      ['groq', this.detectCompletionWithGroq.bind(this)],
+      ['together', this.detectCompletionWithTogether.bind(this)],
+      ['deepseek', this.detectCompletionWithTogether.bind(this)],
+      ['replicate', this.detectCompletionWithReplicate.bind(this)],
+      ['gemini', this.detectCompletionWithGemini.bind(this)],
+    ]);
     this.initializeProviders();
   }
 
@@ -192,19 +221,9 @@ export class SimpleAiService {
     const fullPrompt = `${userInput}${historyText}${remindersText}${workflowsText}`;
 
     try {
-      switch (provider.name) {
-        case 'groq':
-          return await this.parseWithGroq(provider, fullPrompt, msgTimestamp);
-        case 'together':
-        case 'deepseek':
-          return await this.parseWithTogether(provider, fullPrompt, msgTimestamp);
-        case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, msgTimestamp);
-        case 'gemini':
-          return await this.parseWithGemini(provider, fullPrompt, msgTimestamp);
-        default:
-          throw new Error(`Unknown provider: ${provider.name}`);
-      }
+      const strategy = this.parseStrategies.get(provider.name);
+      if (!strategy) throw new Error(`Unknown provider: ${provider.name}`);
+      return await strategy(provider, fullPrompt, msgTimestamp);
     } catch (error) {
       this.logger.error(`Failed to parse with ${provider.name}:`, error);
       if (this.providers.length > 1) {
@@ -222,19 +241,9 @@ export class SimpleAiService {
     }
 
     try {
-      switch (provider.name) {
-        case 'groq':
-          return await this.generateWithGroq(provider, userInput, reminder);
-        case 'together':
-        case 'deepseek':
-          return await this.generateWithTogether(provider, userInput, reminder);
-        case 'replicate':
-          return await this.generateWithReplicate(provider, userInput, reminder);
-        case 'gemini':
-          return await this.generateWithGemini(provider, userInput, reminder);
-        default:
-          return this.getStaticResponse(userInput, reminder);
-      }
+      const strategy = this.generateStrategies.get(provider.name);
+      if (!strategy) return this.getStaticResponse(userInput, reminder);
+      return await strategy(provider, userInput, reminder);
     } catch (error) {
       this.logger.error(`Failed to generate response with ${provider.name}:`, error);
       return this.getStaticResponse(userInput, reminder);
@@ -248,19 +257,9 @@ export class SimpleAiService {
     }
 
     try {
-      switch (provider.name) {
-        case 'groq':
-          return await this.detectCompletionWithGroq(provider, userInput, userReminders);
-        case 'together':
-        case 'deepseek':
-          return await this.detectCompletionWithTogether(provider, userInput, userReminders);
-        case 'replicate':
-          return await this.detectCompletionWithReplicate(provider, userInput, userReminders);
-        case 'gemini':
-          return await this.detectCompletionWithGemini(provider, userInput, userReminders);
-        default:
-          return { completed: false, response: "Got it!" };
-      }
+      const strategy = this.detectCompletionStrategies.get(provider.name);
+      if (!strategy) return { completed: false, response: "Got it!" };
+      return await strategy(provider, userInput, userReminders);
     } catch (error) {
       this.logger.error(`Failed to detect completion with ${provider.name}:`, error);
       return { completed: false, response: "Got it!" };

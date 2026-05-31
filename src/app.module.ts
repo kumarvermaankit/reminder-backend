@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { ReminderController } from './controllers/reminder.controller';
 import { AiController } from './controllers/ai.controller';
 import { WhatsappController } from './controllers/whatsapp.controller';
+import { WhatsappActionHandler } from './controllers/whatsapp-action-handler';
 import { AppService } from './app.service';
 import { ReminderService } from './services/reminder.service';
 import { SchedulerService } from './services/scheduler.service';
@@ -49,6 +50,6 @@ import { TodoItem } from './entities/todo-item.entity';
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, WhatsappActionHandler],
 })
 export class AppModule {}

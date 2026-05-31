@@ -30,13 +30,39 @@ interface AIProvider {
   };
 }
 
+type ParseFn = (provider: AIProvider, userInput: string) => Promise<ParsedReminder>;
+type GenerateFn = (provider: AIProvider, userInput: string, reminder?: ParsedReminder) => Promise<string>;
+type DetectCompletionFn = (provider: AIProvider, userInput: string, userReminders: any[]) => Promise<{completed: boolean, reminderId?: string, response: string}>;
+
 @Injectable()
 export class MultiProviderAiService {
   private readonly logger = new Logger(MultiProviderAiService.name);
   private providers: AIProvider[] = [];
   private usageCache = new Map<string, any>();
 
+  private readonly parseStrategies: Map<string, ParseFn>;
+  private readonly generateStrategies: Map<string, GenerateFn>;
+  private readonly detectStrategies: Map<string, DetectCompletionFn>;
+
   constructor() {
+    this.parseStrategies = new Map([
+      ['groq', this.parseWithGroq.bind(this)],
+      ['together', this.parseWithTogether.bind(this)],
+      ['replicate', this.parseWithReplicate.bind(this)],
+      ['gemini', this.parseWithGemini.bind(this)],
+    ]);
+    this.generateStrategies = new Map([
+      ['groq', this.generateWithGroq.bind(this)],
+      ['together', this.generateWithTogether.bind(this)],
+      ['replicate', this.generateWithReplicate.bind(this)],
+      ['gemini', this.generateWithGemini.bind(this)],
+    ]);
+    this.detectStrategies = new Map([
+      ['groq', this.detectCompletionWithGroq.bind(this)],
+      ['together', this.detectCompletionWithTogether.bind(this)],
+      ['replicate', this.detectCompletionWithReplicate.bind(this)],
+      ['gemini', this.detectCompletionWithGemini.bind(this)],
+    ]);
     this.initializeProviders();
     this.loadUsageFromCache();
   }
@@ -209,24 +235,9 @@ export class MultiProviderAiService {
     }
 
     try {
-      let result;
-      
-      switch (provider.name) {
-        case 'groq':
-          result = await this.parseWithGroq(provider, userInput);
-          break;
-        case 'together':
-          result = await this.parseWithTogether(provider, userInput);
-          break;
-        case 'replicate':
-          result = await this.parseWithReplicate(provider, userInput);
-          break;
-        case 'gemini':
-          result = await this.parseWithGemini(provider, userInput);
-          break;
-        default:
-          throw new Error(`Unknown provider: ${provider.name}`);
-      }
+      const parseStrategy = this.parseStrategies.get(provider.name);
+      if (!parseStrategy) throw new Error(`Unknown provider: ${provider.name}`);
+      const result = await parseStrategy(provider, userInput);
 
       await this.trackUsage(provider);
       this.logger.log(`Parsed reminder using ${provider.name}: ${result.title}`);
@@ -365,24 +376,9 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     }
 
     try {
-      let response;
-      
-      switch (provider.name) {
-        case 'groq':
-          response = await this.generateWithGroq(provider, userInput, reminder);
-          break;
-        case 'together':
-          response = await this.generateWithTogether(provider, userInput, reminder);
-          break;
-        case 'replicate':
-          response = await this.generateWithReplicate(provider, userInput, reminder);
-          break;
-        case 'gemini':
-          response = await this.generateWithGemini(provider, userInput, reminder);
-          break;
-        default:
-          response = this.getStaticResponse(userInput, reminder);
-      }
+      const generateStrategy = this.generateStrategies.get(provider.name);
+      if (!generateStrategy) return this.getStaticResponse(userInput, reminder);
+      const response = await generateStrategy(provider, userInput, reminder);
 
       await this.trackUsage(provider);
       return response;
@@ -466,24 +462,9 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     }
 
     try {
-      let result;
-      
-      switch (provider.name) {
-        case 'groq':
-          result = await this.detectCompletionWithGroq(provider, userInput, userReminders);
-          break;
-        case 'together':
-          result = await this.detectCompletionWithTogether(provider, userInput, userReminders);
-          break;
-        case 'replicate':
-          result = await this.detectCompletionWithReplicate(provider, userInput, userReminders);
-          break;
-        case 'gemini':
-          result = await this.detectCompletionWithGemini(provider, userInput, userReminders);
-          break;
-        default:
-          result = { completed: false, response: "Got it!" };
-      }
+      const detectStrategy = this.detectStrategies.get(provider.name);
+      if (!detectStrategy) return { completed: false, response: "Got it!" };
+      const result = await detectStrategy(provider, userInput, userReminders);
 
       await this.trackUsage(provider);
       return result;

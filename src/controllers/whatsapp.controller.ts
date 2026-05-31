@@ -438,6 +438,16 @@ export class WhatsappController {
         }
       }
 
+      // Auto-save inferred timezone from localTime + msgTimestamp when unknown
+      if (parsed.inferredUtcOffsetMinutes != null && user.timezone === 'UTC') {
+        const tzName = this.commonOffsetToIana(parsed.inferredUtcOffsetMinutes);
+        if (tzName) {
+          this.logger.log(`Inferred timezone ${tzName} from localTime + msgTimestamp, saving for user ${user.id}`);
+          await this.userService.updateUser(user.id, { timezone: tzName });
+          user.timezone = tzName;
+        }
+      }
+
       // Dispatch based on action type
       let botResponse: string;
 

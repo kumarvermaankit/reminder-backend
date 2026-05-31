@@ -259,14 +259,14 @@ export class WhatsappController {
       }
       
       console.log("msgTimestamp", msgTimestamp);
-      // Auto-detect timezone from WhatsApp message timestamp + greeting
-      if (user.timezone === 'UTC' && msgTimestamp) {
-        const inferred = this.userService.inferTimezone(msgTimestamp, message);
-        if (inferred && inferred !== 'UTC') {
-          this.logger.log(`Inferred timezone "${inferred}" for user ${user.id} from message timestamp + greeting`);
-          user = await this.userService.updateUser(user.id, { timezone: inferred });
-        }
-      }
+      // // Auto-detect timezone from WhatsApp message timestamp + greeting
+      // if (user.timezone === 'UTC' && msgTimestamp) {
+      //   const inferred = this.userService.inferTimezone(msgTimestamp, message);
+      //   if (inferred && inferred !== 'UTC') {
+      //     this.logger.log(`Inferred timezone "${inferred}" for user ${user.id} from message timestamp + greeting`);
+      //     user = await this.userService.updateUser(user.id, { timezone: inferred });
+      //   }
+      // }
 
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
@@ -295,28 +295,28 @@ export class WhatsappController {
         return;
       }
 
-      // Extract name and location from response
-      const infoMatch = message.match(/(?:i(?:'| a)m\s+)?(\w+)\s+(?:from|in|at)\s+(.+)/i);
-      if (infoMatch && user.name === 'there') {
-        const newName = infoMatch[1];
-        const location = infoMatch[2].trim();
-        await this.userService.updateUser(user.id, { name: newName });
-        user.name = newName;
+      // // Extract name and location from response
+      // const infoMatch = message.match(/(?:i(?:'| a)m\s+)?(\w+)\s+(?:from|in|at)\s+(.+)/i);
+      // if (infoMatch && user.name === 'there') {
+      //   const newName = infoMatch[1];
+      //   const location = infoMatch[2].trim();
+      //   await this.userService.updateUser(user.id, { name: newName });
+      //   user.name = newName;
 
-        const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
-        if (tz) {
-          await this.userService.updateUser(user.id, { timezone: tz });
-          user.timezone = tz;
-          const botMsg = `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`;
-          await this.whatsappService.sendMessage(userPhone, botMsg);
-          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-        } else {
-          const botMsg = `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`;
-          await this.whatsappService.sendMessage(userPhone, botMsg);
-          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-        }
-        return;
-      }
+      //   const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+      //   if (tz) {
+      //     await this.userService.updateUser(user.id, { timezone: tz });
+      //     user.timezone = tz;
+      //     const botMsg = `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`;
+      //     await this.whatsappService.sendMessage(userPhone, botMsg);
+      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+      //   } else {
+      //     const botMsg = `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`;
+      //     await this.whatsappService.sendMessage(userPhone, botMsg);
+      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+      //   }
+      //   return;
+      // }
 
       // Simple name-only intro (no location)
       const nameMatch = message.match(/i(?:'| a)m\s+(\w+)/i);
@@ -330,25 +330,25 @@ export class WhatsappController {
         return;
       }
 
-      // Check for timezone update request
-      const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
-      if (tzMatch) {
-        const tz = tzMatch[1].trim();
-        const validTz = this.lookupTimezone(tz);
-        if (validTz) {
-          await this.userService.updateUser(user.id, { timezone: validTz });
-          user.timezone = validTz;
-          const botMsg = `Got it! Your timezone is set to ${validTz}.`;
-          await this.whatsappService.sendMessage(userPhone, botMsg);
-          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-          return;
-        } else {
-          const botMsg = `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`;
-          await this.whatsappService.sendMessage(userPhone, botMsg);
-          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-          return;
-        }
-      }
+      // // Check for timezone update request
+      // const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
+      // if (tzMatch) {
+      //   const tz = tzMatch[1].trim();
+      //   const validTz = this.lookupTimezone(tz);
+      //   if (validTz) {
+      //     await this.userService.updateUser(user.id, { timezone: validTz });
+      //     user.timezone = validTz;
+      //     const botMsg = `Got it! Your timezone is set to ${validTz}.`;
+      //     await this.whatsappService.sendMessage(userPhone, botMsg);
+      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+      //     return;
+      //   } else {
+      //     const botMsg = `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`;
+      //     await this.whatsappService.sendMessage(userPhone, botMsg);
+      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+      //     return;
+      //   }
+      // }
 
       // Get conversation history and pending reminders for AI context
       const conversation = await this.userContextService.getConversation(user.id);

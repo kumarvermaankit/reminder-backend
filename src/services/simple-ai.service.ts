@@ -397,7 +397,7 @@ export class SimpleAiService {
     ${timeContext}
     Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
     Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
-    CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC above; do not use profile timezone.`;
+    CRITICAL: reminderDate : ISO datetime in UTC WITH Z suffix. Convert local wall-clock to UTC (never copy local hours into Z). Example: message 2026-05-30T09:44:00Z, user wants 15:15 local (+05:30) → '2026-05-30T09:45:00Z' NOT '2026-05-30T15:15:00Z'. Relative: add to message UTC. Interval-only: message UTC + intervalMinutes.,`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -442,7 +442,7 @@ export class SimpleAiService {
 ${timeContext}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
 Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
-CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC above; do not use profile timezone.`;
+CRITICAL: reminderDate: ISO datetime in UTC WITH Z suffix. Convert local wall-clock to UTC (never copy local hours into Z). Example: message 2026-05-30T09:44:00Z, user wants 15:15 local (+05:30) → '2026-05-30T09:45:00Z' NOT '2026-05-30T15:15:00Z'. Relative: add to message UTC. Interval-only: message UTC + intervalMinutes.,`;
 
     const response = await model.generateContent(prompt);
     let content = response.response.text();

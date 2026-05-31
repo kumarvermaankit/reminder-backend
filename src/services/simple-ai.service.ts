@@ -194,14 +194,14 @@ export class SimpleAiService {
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.parseWithGroq(provider, fullPrompt, msgTimestamp);
+          return await this.parseWithGroq(provider, fullPrompt, msgTimestamp, timezone);
         case 'together':
         case 'deepseek':
-          return await this.parseWithTogether(provider, fullPrompt, msgTimestamp);
+          return await this.parseWithTogether(provider, fullPrompt, msgTimestamp, timezone);
         case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, msgTimestamp);
+          return await this.parseWithReplicate(provider, fullPrompt, msgTimestamp, timezone);
         case 'gemini':
-          return await this.parseWithGemini(provider, fullPrompt, msgTimestamp);
+          return await this.parseWithGemini(provider, fullPrompt, msgTimestamp, timezone);
         default:
           throw new Error(`Unknown provider: ${provider.name}`);
       }
@@ -294,8 +294,23 @@ export class SimpleAiService {
 
   
   // Provider-specific methods
-  /** Prompt block: anchor "now" on WhatsApp msgTimestamp vs server clock — no IANA timezone. */
-  private buildReminderTimeContext(msgTimestamp?: Date): string {
+  private getUtcOffsetMinutes(timezone: string, date: Date): number {
+    const ms = date.getTime();
+    const tzStr = date.toLocaleString('en-US', {
+      timeZone: timezone,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const [datePart, timePart] = tzStr.split(', ');
+    const [m, d, y] = datePart.split('/');
+    const [h, mn, s] = timePart.split(':');
+    const tzDate = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
+    return (tzDate.getTime() - ms) / 60000;
+  }
+
+  /** Prompt block: anchor "now" on WhatsApp msgTimestamp vs server clock — optionally with known IANA timezone. */
+  private buildReminderTimeContext(msgTimestamp?: Date, timezone?: string): string {
     const userMsgUtc = (msgTimestamp || new Date()).toISOString();
     const serverUtc = new Date().toISOString();
     const lagMinutes = Math.round(
@@ -305,10 +320,13 @@ export class SimpleAiService {
       `reminder time context: userMsgUtc=${userMsgUtc} serverUtc=${serverUtc} lagMin=${lagMinutes}`,
     );
 
-    return `TIME REFERENCE (do NOT use any timezone name, IANA zone, or profile timezone):
+    const knownTimezoneBlock = timezone && timezone !== 'UTC'
+      ? `\n- KNOWN USER TIMEZONE: ${timezone} (UTC offset ${this.getUtcOffsetMinutes(timezone, msgTimestamp || new Date())} min). Use this IANA zone for all local→UTC conversions — do NOT infer a different offset.\n`
+      : `\n- Infer the user's UTC offset from when they sent the message vs the wall-clock they mention (e.g. if message is 09:44Z and they say "15:15", offset is about +05:30).\n`;
+
+    return `TIME REFERENCE:${knownTimezoneBlock}
 - User message sent at (UTC): ${userMsgUtc}  ← this is the user's "now"; use for all relative times
 - Server time (UTC): ${serverUtc}  (processing lag ~${lagMinutes} min — use user message time, not server time)
-- Infer the user's UTC offset from when they sent the message vs the wall-clock they mention (e.g. if message is 09:44Z and they say "15:15", offset is about +05:30).
 - NEVER put the user's local hour into the UTC string. WRONG: message 2026-05-30T09:44:00Z, user wants 15:15 local → "2026-05-30T15:15:00Z". RIGHT: "2026-05-30T09:45:00Z" (subtract offset from local time to get UTC).
 - For wall-clock times: convert local → UTC before returning reminderDate.
 - For relative times ("in 5 minutes", "in 1 hour"): add to the user message UTC timestamp, not server time.
@@ -329,17 +347,22 @@ export class SimpleAiService {
   /**
    * AI often returns local wall-clock as UTC (e.g. 15:15Z instead of 09:45Z for IST).
    * When gap ≈ standard UTC offset and intended delay is small, fix to msgTimestamp + delay.
+   * If knownOffsetMin is provided (from user's timezone), prefer it over standard offset matching.
    */
-  private correctReminderDateFromMsgTimestamp(msgTimestamp: Date, reminderDate: Date): Date {
+  private correctReminderDateFromMsgTimestamp(msgTimestamp: Date, reminderDate: Date, knownOffsetMin?: number): Date {
     const diffMs = reminderDate.getTime() - msgTimestamp.getTime();
     const diffMin = diffMs / 60000;
     if (diffMin <= 0 || diffMin > 24 * 60) return reminderDate;
 
     let offsetMin: number | null = null;
-    for (const o of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
-      if (Math.abs(diffMin - o) <= 3) {
-        offsetMin = o;
-        break;
+    if (knownOffsetMin != null && knownOffsetMin !== 0) {
+      offsetMin = knownOffsetMin;
+    } else {
+      for (const o of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
+        if (Math.abs(diffMin - o) <= 3) {
+          offsetMin = o;
+          break;
+        }
       }
     }
     if (offsetMin === null || offsetMin === 0) return reminderDate;
@@ -363,7 +386,7 @@ export class SimpleAiService {
     return corrected;
   }
 
-  private applyReminderDateFromMsgTimestamp(parsed: any, msgTimestamp?: Date): void {
+  private applyReminderDateFromMsgTimestamp(parsed: any, msgTimestamp?: Date, timezone?: string): void {
     if (!parsed.reminderDate || !msgTimestamp) return;
     const rem =
       parsed.reminderDate instanceof Date
@@ -373,7 +396,10 @@ export class SimpleAiService {
       delete parsed.reminderDate;
       return;
     }
-    parsed.reminderDate = this.correctReminderDateFromMsgTimestamp(msgTimestamp, rem);
+    const knownOffset = timezone && timezone !== 'UTC'
+      ? this.getUtcOffsetMinutes(timezone, msgTimestamp)
+      : undefined;
+    parsed.reminderDate = this.correctReminderDateFromMsgTimestamp(msgTimestamp, rem, knownOffset);
   }
 
   private parseReminderDateUtc(dateStr: string): Date | null {
@@ -390,8 +416,8 @@ export class SimpleAiService {
     }
   }
 
-  private async parseWithGroq(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp);
+  private async parseWithGroq(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
 
     const prompt = `Parse: "${userInput}"
     ${timeContext}
@@ -428,15 +454,15 @@ export class SimpleAiService {
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
-      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp, timezone);
     }
 
     return parsed;
   }
 
-  private async parseWithGemini(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
+  private async parseWithGemini(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
-    const timeContext = this.buildReminderTimeContext(msgTimestamp);
+    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
 
     const prompt = `Parse: "${userInput}"
 ${timeContext}
@@ -463,14 +489,14 @@ CRITICAL: reminderDate: ISO datetime in UTC WITH Z suffix. Convert local wall-cl
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
-      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp, timezone);
     }
     
     return parsed;
   }
 
-  private async parseWithTogether(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp);
+  private async parseWithTogether(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
@@ -488,13 +514,13 @@ CRITICAL: reminderDate: ISO datetime in UTC WITH Z suffix. Convert local wall-cl
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
-      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp, timezone);
     }
     return parsed;
   }
 
-  private async parseWithReplicate(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp);
+  private async parseWithReplicate(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
+    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
 ${timeContext}
 
@@ -518,7 +544,7 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, night=8pm relative to user messa
     if (parsed.reminderDate) {
       parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
       if (!parsed.reminderDate) delete parsed.reminderDate;
-      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp);
+      this.applyReminderDateFromMsgTimestamp(parsed, msgTimestamp, timezone);
     }
     return parsed;
   }

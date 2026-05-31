@@ -406,24 +406,21 @@ export class SimpleAiService {
   /**
    * Fallback: when the AI didn't set localTime, try to extract a time from the
    * raw user input using regex patterns. Sets localTime on parsed if found.
+   * Also cleans up localTime strings that contain extra text (e.g. "7am tomorrow").
    */
   private extractTimeFallback(userInput: string, parsed: any): void {
-    if (parsed.localTime) return; // AI already provided it
+    const raw = parsed.localTime || userInput;
+    // Try to extract clean time from whatever string is available
     const patterns = [
       /\b(\d{1,2}):(\d{2})\s*(am|pm)\b/i,   // "5:15 PM", "7:00 am"
       /\b(\d{1,2})\s*(am|pm)\b/i,             // "7am", "9PM", "5 pm"
-      /\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))/i, // "15:15" (24h)
     ];
     for (const pat of patterns) {
-      const m = userInput.match(pat);
+      const m = raw.match(pat);
       if (m) {
-        let timeStr = m[0].trim().toLowerCase();
-        // Normalize: pad single-digit hours
-        if (/^\d{1,2}:\d{2}\s*(?:am|pm)$/i.test(timeStr)) {
-          timeStr = timeStr.replace(/^(\d)(?=:\d{2})/, '0$1');
-        }
+        const timeStr = m[0].trim().toLowerCase();
+        this.logger.log(`extractTimeFallback cleaned localTime: "${raw}" → "${timeStr}"`);
         parsed.localTime = timeStr;
-        this.logger.log(`extractTimeFallback found localTime="${timeStr}" in "${userInput}"`);
         return;
       }
     }
@@ -435,7 +432,8 @@ export class SimpleAiService {
    */
   private parseLocalTime(input: string): { hours: number; minutes: number } | null {
     const s = input.trim().toLowerCase();
-    const amPmMatch = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
+    // Allow trailing text after time (e.g. "7am tomorrow", "5:15 PM here")
+    const amPmMatch = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
     if (amPmMatch) {
       let h = parseInt(amPmMatch[1], 10);
       const m = parseInt(amPmMatch[2] || '0', 10);
@@ -445,7 +443,7 @@ export class SimpleAiService {
       if (mer === 'am' && h === 12) h = 0;
       return { hours: h, minutes: m };
     }
-    const milMatch = s.match(/^(\d{1,2}):(\d{2})$/);
+    const milMatch = s.match(/^(\d{1,2}):(\d{2})\b/);
     if (milMatch) {
       const h = parseInt(milMatch[1], 10);
       const m = parseInt(milMatch[2], 10);

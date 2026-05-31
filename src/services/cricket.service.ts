@@ -6,22 +6,6 @@ export interface LiveMatch {
   title: string;
   score: string;
   status: string;
-  batsmen: { name: string; score: string }[];
-  bowler: { name: string; figures: string } | null;
-}
-
-interface CricbuzzMatchCard {
-  matchInfo?: {
-    matchId?: number;
-    matchDesc?: string;
-    team1?: { name: string; shortName: string };
-    team2?: { name: string; shortName: string };
-  };
-  matchScore?: {
-    team1Score?: { inngs1?: { runs: number; wkts: number; overs: number } };
-    team2Score?: { inngs1?: { runs: number; wkts: number; overs: number } };
-  };
-  matchStatus?: string;
 }
 
 @Injectable()
@@ -29,49 +13,105 @@ export class CricketService {
   private readonly logger = new Logger(CricketService.name);
 
   async getLiveScores(): Promise<LiveMatch[]> {
-    const sources = [
-      () => this.fetchFromCricbuzzApi(),
-    ];
-    for (const src of sources) {
-      try {
-        const result = await src();
-        if (result.length > 0) return result;
-      } catch {
-        continue;
-      }
+    try {
+      const html = await this.fetchPage();
+      const rawData = this.extractRawData(html);
+      if (!rawData || rawData.length === 0) return [];
+      return this.parseMatches(rawData);
+    } catch (e) {
+      this.logger.error(`Failed to fetch cricket scores: ${e.message}`);
+      return [];
     }
-    return [];
   }
 
-  private async fetchFromCricbuzzApi(): Promise<LiveMatch[]> {
-    const res = await axios.get('https://www.cricbuzz.com/api/cricket-match/live-scores', {
-      timeout: 8000,
+  private async fetchPage(): Promise<string> {
+    const res = await axios.get('https://www.cricbuzz.com/cricket-match/live-scores', {
+      timeout: 10000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html',
       },
     });
-    const data = res.data as CricbuzzMatchCard[];
-    if (!Array.isArray(data)) return [];
-    return data.map((m: CricbuzzMatchCard): LiveMatch => {
-      const info = m.matchInfo || {};
-      const score = m.matchScore || {};
-      const t1 = score.team1Score?.inngs1;
-      const t2 = score.team2Score?.inngs1;
-      const t1Name = info.team1?.shortName || info.team1?.name || 'Team 1';
-      const t2Name = info.team2?.shortName || info.team2?.name || 'Team 2';
-      const t1Score = t1 ? `${t1.runs}/${t1.wkts || 0} (${t1.overs} ov)` : '';
-      const t2Score = t2 ? `${t2.runs}/${t2.wkts || 0} (${t2.overs} ov)` : '';
-      const scoreStr = [t1Score, t2Score].filter(Boolean).join(' & ');
-      return {
-        id: String(info.matchId || ''),
-        title: `${t1Name} vs ${t2Name}${info.matchDesc ? `, ${info.matchDesc}` : ''}`,
-        score: scoreStr || 'Match yet to start',
-        status: m.matchStatus || 'Live',
-        batsmen: [],
-        bowler: null,
-      };
-    });
+    return res.data;
+  }
+
+  /** Extract match data from Next.js __next_f push #26. */
+  private extractRawData(html: string): any[] | null {
+    // Find the __next_f push that has "matches": with seriesMatches
+    const pushRe = /<script>self\.__next_f\.push\(\[1,"([^]*?)"\]\)<\/script>/g;
+    let m: RegExpExecArray | null;
+    while ((m = pushRe.exec(html)) !== null) {
+      const raw = m[1];
+      if (!raw.includes('seriesMatches')) continue;
+      // Extract the JSON after "matches":[
+      const start = raw.indexOf('\"matches\":[');
+      if (start < 0) continue;
+      let after = raw.substring(start + 11);
+      // Find matching close bracket — track nesting
+      let depth = 0;
+      let end = 0;
+      for (let i = 0; i < after.length; i++) {
+        const ch = after[i];
+        if (ch === '[') depth++;
+        else if (ch === ']') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      if (end === 0) continue;
+      const jsonStr = after.substring(0, end)
+        .replace(/\\"/g, '"')
+        .replace(/\\n/g, '')
+        .replace(/\\\\/g, '\\');
+      try {
+        return JSON.parse(jsonStr);
+      } catch { continue; }
+    }
+    return null;
+  }
+
+  /** Convert raw Cricbuzz matches to our LiveMatch format. */
+  private parseMatches(raw: any[]): LiveMatch[] {
+    const result: LiveMatch[] = [];
+    const now = Date.now();
+
+    for (const entry of raw) {
+      const seriesMatches = entry.seriesMatches || [];
+      for (const sm of seriesMatches) {
+        const wrapper = sm.seriesAdWrapper || sm;
+        const matches = wrapper.matches || [];
+        for (const m of matches) {
+          const match = m.match || m;
+          const info = match.matchInfo || {};
+          const score = match.matchScore || {};
+          const s1 = score.team1Score?.inngs1;
+          const s2 = score.team2Score?.inngs1;
+
+          // Skip old completed matches (more than 6h ago)
+          const startDate = parseInt(info.startDate, 10);
+          if (info.state === 'Complete' && startDate && (now - startDate) > 21600000) continue;
+
+          const t1 = info.team1?.teamSName || info.team1?.teamName || 'T1';
+          const t2 = info.team2?.teamSName || info.team2?.teamName || 'T2';
+
+          const fmt = (s: any) =>
+            s ? `${s.runs || 0}/${s.wkts || 0} (${s.overs || 0} ov)` : '';
+
+          const parts = [fmt(s1), fmt(s2)].filter(Boolean);
+          const scoreStr = parts.length > 0 ? parts.join(' & ') : '';
+
+          let status = info.status || info.state || '';
+          if (status === 'In Progress') status = '🔴 Live';
+          else if (status === 'Complete') status = '✅ Completed';
+          else if (status === 'Toss') status = '🔄 Toss about to start';
+
+          result.push({
+            id: String(info.matchId || ''),
+            title: `${t1} vs ${t2}${info.matchDesc ? `, ${info.matchDesc}` : ''}`,
+            score: scoreStr,
+            status,
+          });
+        }
+      }
+    }
+    return result;
   }
 
   async searchMatch(query: string): Promise<LiveMatch | null> {
@@ -84,16 +124,9 @@ export class CricketService {
   }
 
   formatMatch(m: LiveMatch): string {
-    const lines = [`🏏 *${m.title}*`];
-    if (m.score) lines.push(`📊 ${m.score}`);
-    if (m.batsmen.length > 0) {
-      lines.push(`\n*Batting:* ${m.batsmen.map(b => `${b.name} ${b.score}`).join(', ')}`);
-    }
-    if (m.bowler) {
-      lines.push(`*Bowler:* ${m.bowler.name} (${m.bowler.figures})`);
-    }
-    if (m.status) lines.push(`\n_${m.status}_`);
-    return lines.join('\n');
+    return `🏏 *${m.title}*
+📊 ${m.score || 'No score yet'}
+_${m.status}_`;
   }
 
   formatMatchBrief(m: LiveMatch): string {

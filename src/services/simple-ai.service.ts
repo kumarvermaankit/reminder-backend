@@ -300,47 +300,53 @@ export class SimpleAiService {
    * UTC time is in the future AND the implied local "now" (msgTimestamp + offset)
    * falls within waking hours (7am – 11pm local).
    */
+  // Default offset used when no timezone is known. Asia/Kolkata (IST) is the default
+  // since this is a personal assistant for an Indian user.
+  private static readonly DEFAULT_UTC_OFFSET = 330;
+
   private inferUtcOffset(localTime: string, msgTimestamp: Date, timezone?: string): number | null {
     const parsed = this.parseLocalTime(localTime);
     if (!parsed) return null;
     const { hours, minutes: mins } = parsed;
     const localTargetMin = hours * 60 + mins;
+    const msgMin = msgTimestamp.getUTCHours() * 60 + msgTimestamp.getUTCMinutes();
 
-    // If user has a known timezone, get its offset to use as a tiebreaker bonus
-    const preferredOffset = timezone ? this.getUtcOffsetMinutes(timezone, msgTimestamp) : undefined;
+    // Priority 1: User's known timezone (most reliable)
+    if (timezone && timezone !== 'UTC') {
+      const tzOffset = this.getUtcOffsetMinutes(timezone, msgTimestamp);
+      if (tzOffset != null) return tzOffset;
+    }
 
-    let best: { offset: number; score: number } | null = null;
+    // Priority 2: Default offset (IST = +5:30). Check if it produces a valid result.
+    const defaultOffset = SimpleAiService.DEFAULT_UTC_OFFSET;
+    if (this.isOffsetValid(localTargetMin, msgMin, defaultOffset)) {
+      return defaultOffset;
+    }
+
+    // Priority 3: Try all standard offsets as fallback, pick first valid one
     for (const offset of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
-      const utcTargetMin = (localTargetMin - offset + 24 * 60) % (24 * 60);
-      const msgDayMs = Date.UTC(
-        msgTimestamp.getUTCFullYear(),
-        msgTimestamp.getUTCMonth(),
-        msgTimestamp.getUTCDate(),
-        0, 0, 0, 0,
-      );
-      const msgMin = msgTimestamp.getUTCHours() * 60 + msgTimestamp.getUTCMinutes();
-      const utcTargetDate = new Date(msgDayMs + utcTargetMin * 60 * 1000);
-      if (utcTargetDate.getTime() <= msgTimestamp.getTime()) {
-        utcTargetDate.setDate(utcTargetDate.getDate() + 1);
-      }
-
-      const delayMin = (utcTargetDate.getTime() - msgTimestamp.getTime()) / 60000;
-      if (delayMin <= 0 || delayMin > 24 * 60) continue;
-
-      const localNowMin = (msgMin + offset + 24 * 60) % (24 * 60);
-      const wakeScore = localNowMin >= 7 * 60 && localNowMin <= 23 * 60 ? 10 : 0;
-      const delayScore = delayMin <= 12 * 60 ? 20 : 10;
-      // Tiebreaker 1: prefer shorter delay
-      const delayTiebreaker = Math.max(0, 1 - delayMin / (24 * 60));
-      // Tiebreaker 2: prefer known timezone offset
-      const tzBonus = preferredOffset !== undefined && offset === preferredOffset ? 1 : 0;
-      const score = wakeScore + delayScore + delayTiebreaker + tzBonus;
-
-      if (!best || score > best.score) {
-        best = { offset, score };
+      if (this.isOffsetValid(localTargetMin, msgMin, offset)) {
+        return offset;
       }
     }
-    return best ? best.offset : null;
+    return null;
+  }
+
+  /**
+   * Check whether the given UTC offset produces a valid conversion (delay > 0, <= 24h,
+   * local message time in waking hours).
+   */
+  private isOffsetValid(localTargetMin: number, msgMin: number, offset: number): boolean {
+    const utcTargetMin = (localTargetMin - offset + 24 * 60) % (24 * 60);
+    let delayMin = utcTargetMin - msgMin;
+    if (delayMin <= 0) {
+      delayMin += 24 * 60; // pushes to next day
+    }
+    if (delayMin <= 0 || delayMin > 24 * 60) return false;
+
+    const localNowMin = (msgMin + offset + 24 * 60) % (24 * 60);
+    const inWakingHours = localNowMin >= 7 * 60 && localNowMin <= 23 * 60;
+    return inWakingHours;
   }
 
   /**
@@ -438,10 +444,12 @@ export class SimpleAiService {
 
   /** Standard UTC offsets in minutes (east positive), 15/30/45 min steps. */
   private static readonly STANDARD_UTC_OFFSET_MINUTES = [
-    -720, -660, -600, -540, -480, -420, -360, -300, -270, -240, -210, -180, -150, -120, -90, -60, -30,
-    0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 690, 720, 780,
+    // Most common timezone offsets first (approximate population order)
+    0, 60, 120, 180, 240, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 690, 720, 780,
+    -60, -120, -180, -240, -300, -360, -420, -480, -540, -600, -660, -720,
+    -30, 30, 90, 150, 210, 270, 345,  // half-hour offsets
+    -90, -150, -210, -270,  // less common
   ];
-
   private minutesOfDayUtc(d: Date): number {
     return d.getUTCHours() * 60 + d.getUTCMinutes();
   }

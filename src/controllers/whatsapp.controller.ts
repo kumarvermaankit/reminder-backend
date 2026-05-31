@@ -438,16 +438,6 @@ export class WhatsappController {
         }
       }
 
-      // Auto-save inferred timezone from localTime + msgTimestamp when unknown
-      if (parsed.inferredUtcOffsetMinutes != null && user.timezone === 'UTC') {
-        const tzName = this.commonOffsetToIana(parsed.inferredUtcOffsetMinutes);
-        if (tzName) {
-          this.logger.log(`Inferred timezone ${tzName} from localTime + msgTimestamp, saving for user ${user.id}`);
-          await this.userService.updateUser(user.id, { timezone: tzName });
-          user.timezone = tzName;
-        }
-      }
-
       // Dispatch based on action type
       let botResponse: string;
 
@@ -1209,11 +1199,18 @@ export class WhatsappController {
       );
       if (dayDiff < 0 || dayDiff > 14) continue;
 
-      let score = dayDiff === 1 ? 20 : dayDiff === 0 ? 12 : dayDiff <= 7 ? 4 : 0;
+      let score = dayDiff === 0 ? 15 : dayDiff === 1 ? 5 : 0;
       const localHour = Number(
         targetDate.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
       );
-      if (localHour >= 7 && localHour <= 22) score += 5;
+      if (localHour >= 7 && localHour <= 22) score += 10;
+      else if (localHour < 6 || localHour >= 23) score -= 10;
+
+      // Also check that msg time falls in reasonable hours for this timezone
+      const msgHour = Number(
+        msgRef.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
+      );
+      if (msgHour < 6 || msgHour >= 23) score -= 5;
 
       if (score > bestScore) {
         bestScore = score;

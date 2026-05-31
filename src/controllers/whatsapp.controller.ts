@@ -289,66 +289,83 @@ export class WhatsappController {
       const isGreeting = greetings.includes(message.toLowerCase().trim());
 
       if (user.name === 'there' && isGreeting) {
-        const botMsg = `Hi there! 👋 I'm your Reminder Assistant.\n\nTo get started, could you tell me your name and which city you're in?\n\nFor example: "I'm John from Mumbai"`;
+        const botMsg = `Hi there! 👋 I'm your Reminder Assistant.\n\nTo get started, could you tell me your name and timezone?\n\nFor example: "I'm John from Mumbai" or "I'm John, IST" or "John, UTC+5:30"`;
         await this.whatsappService.sendMessage(userPhone, botMsg);
         await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
       }
 
-      // // Extract name and location from response
-      // const infoMatch = message.match(/(?:i(?:'| a)m\s+)?(\w+)\s+(?:from|in|at)\s+(.+)/i);
-      // if (infoMatch && user.name === 'there') {
-      //   const newName = infoMatch[1];
-      //   const location = infoMatch[2].trim();
-      //   await this.userService.updateUser(user.id, { name: newName });
-      //   user.name = newName;
+      // Extract name and location from response (e.g. "I'm John from Mumbai")
+      const infoMatch = message.match(/(?:i(?:'| a)m\s+)?(\w+)\s+(?:from|in|at)\s+(.+)/i);
+      if (infoMatch && user.name === 'there') {
+        const newName = infoMatch[1];
+        const location = infoMatch[2].trim();
+        await this.userService.updateUser(user.id, { name: newName });
+        user.name = newName;
 
-      //   const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
-      //   if (tz) {
-      //     await this.userService.updateUser(user.id, { timezone: tz });
-      //     user.timezone = tz;
-      //     const botMsg = `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`;
-      //     await this.whatsappService.sendMessage(userPhone, botMsg);
-      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-      //   } else {
-      //     const botMsg = `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`;
-      //     await this.whatsappService.sendMessage(userPhone, botMsg);
-      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-      //   }
-      //   return;
-      // }
+        const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+        if (tz) {
+          await this.userService.updateUser(user.id, { timezone: tz });
+          user.timezone = tz;
+          const botMsg = `Nice to meet you, ${newName}! 🌍 I've set your timezone to ${tz} based on your location.\n\nNow, what would you like me to remind you about?`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+        } else {
+          const botMsg = `Nice to meet you, ${newName}! 🎉 What would you like me to remind you about?`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+        }
+        return;
+      }
 
-      // Simple name-only intro (no location)
+      // Simple name-only intro (no location) — asks for city next
       const nameMatch = message.match(/i(?:'| a)m\s+(\w+)/i);
       if (nameMatch && user.name === 'there') {
         const newName = nameMatch[1];
         await this.userService.updateUser(user.id, { name: newName });
         user.name = newName;
-        const botMsg = `Nice to meet you, ${newName}! 🎉 Also, which city are you in so I can set the right time for your reminders?`;
+        const botMsg = `Nice to meet you, ${newName}! 🎉 Also, what's your timezone? (e.g., IST, UTC+5:30, or your city name)`;
         await this.whatsappService.sendMessage(userPhone, botMsg);
         await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
         return;
       }
 
-      // // Check for timezone update request
-      // const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
-      // if (tzMatch) {
-      //   const tz = tzMatch[1].trim();
-      //   const validTz = this.lookupTimezone(tz);
-      //   if (validTz) {
-      //     await this.userService.updateUser(user.id, { timezone: validTz });
-      //     user.timezone = validTz;
-      //     const botMsg = `Got it! Your timezone is set to ${validTz}.`;
-      //     await this.whatsappService.sendMessage(userPhone, botMsg);
-      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-      //     return;
-      //   } else {
-      //     const botMsg = `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`;
-      //     await this.whatsappService.sendMessage(userPhone, botMsg);
-      //     await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
-      //     return;
-      //   }
-      // }
+      // Handle city-only response after name was set (e.g. user says "Mumbai" or "from Mumbai")
+      if (user.name !== 'there' && user.timezone === 'UTC') {
+        const cityMatch = message.match(/(?:i(?:'| a)m\s+)?(?:from|in|at\s+)?(.+)/i);
+        if (cityMatch) {
+          const location = cityMatch[1].trim().toLowerCase();
+          const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+          if (tz) {
+            await this.userService.updateUser(user.id, { timezone: tz });
+            user.timezone = tz;
+            const botMsg = `🌍 Got it! I've set your timezone to ${tz}.\n\nNow, what would you like me to remind you about?`;
+            await this.whatsappService.sendMessage(userPhone, botMsg);
+            await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+            return;
+          }
+        }
+      }
+
+      // Check for timezone update request
+      const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
+      if (tzMatch) {
+        const tz = tzMatch[1].trim();
+        const validTz = this.lookupTimezone(tz);
+        if (validTz) {
+          await this.userService.updateUser(user.id, { timezone: validTz });
+          user.timezone = validTz;
+          const botMsg = `Got it! Your timezone is set to ${validTz}.`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+          return;
+        } else {
+          const botMsg = `I'm not sure which timezone that is. Try something like "timezone is Asia/Kolkata" or "timezone is America/New_York".`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+          return;
+        }
+      }
 
       // Get conversation history and pending reminders for AI context
       const conversation = await this.userContextService.getConversation(user.id);
@@ -1029,14 +1046,71 @@ export class WhatsappController {
       'cet': 'Europe/Paris',
       'bst': 'Europe/London',
     };
-    const key = input.toLowerCase().trim();
+    let key = input.toLowerCase().trim();
+
+    // Strip common prefixes like "utc", "gmt", "etc/gmt"
+    key = key.replace(/^(utc|gmt|etc\/gmt)\s*/i, '');
     if (aliases[key]) return aliases[key];
+
+    // Try parsing numeric UTC offset (e.g. "+5:30", "+0530", "-5", "5:30")
+    const offsetMatch = key.match(/^([+-])?\s*(\d{1,2})(?::(\d{2})|(\d{2}))?$/);
+    if (offsetMatch) {
+      const sign = offsetMatch[1] === '-' ? -1 : 1;
+      const hours = parseInt(offsetMatch[2], 10);
+      const minutes = parseInt(offsetMatch[3] || offsetMatch[4] || '0', 10);
+      const totalMinutes = sign * (hours * 60 + minutes);
+      const tz = this.commonOffsetToIana(totalMinutes);
+      if (tz) return tz;
+    }
+
     try {
       Intl.DateTimeFormat(undefined, { timeZone: input });
       return input;
     } catch {
       return null;
     }
+  }
+
+  /** Map a UTC offset in minutes to the most likely IANA timezone. */
+  private commonOffsetToIana(offsetMinutes: number): string | null {
+    const rounded = Math.round(offsetMinutes / 15) * 15;
+    const map: Record<string, string> = {
+      '-720': 'Pacific/Midway',
+      '-660': 'Pacific/Honolulu',
+      '-600': 'America/Anchorage',
+      '-540': 'America/Los_Angeles',
+      '-480': 'America/Denver',
+      '-420': 'America/Chicago',
+      '-360': 'America/New_York',
+      '-300': 'America/Halifax',
+      '-270': 'America/St_Johns',
+      '-240': 'America/Sao_Paulo',
+      '-180': 'America/Argentina/Buenos_Aires',
+      '-60': 'Atlantic/Azores',
+      '0': 'UTC',
+      '60': 'Europe/Paris',
+      '120': 'Europe/Athens',
+      '180': 'Europe/Moscow',
+      '210': 'Asia/Tehran',
+      '240': 'Asia/Dubai',
+      '270': 'Asia/Kabul',
+      '300': 'Asia/Karachi',
+      '330': 'Asia/Kolkata',
+      '345': 'Asia/Kathmandu',
+      '360': 'Asia/Dhaka',
+      '390': 'Asia/Yangon',
+      '420': 'Asia/Bangkok',
+      '480': 'Asia/Shanghai',
+      '510': 'Australia/Eucla',
+      '540': 'Asia/Tokyo',
+      '570': 'Australia/Adelaide',
+      '600': 'Australia/Sydney',
+      '630': 'Australia/Lord_Howe',
+      '660': 'Pacific/Noumea',
+      '720': 'Pacific/Auckland',
+      '780': 'Pacific/Chatham',
+    };
+    return map[String(rounded)] || null;
   }
 
   private guessTimezoneFromLocation(location: string): string | null {

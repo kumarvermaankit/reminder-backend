@@ -4,11 +4,17 @@ const WHATSAPP_TEXT_MAX = 4096;
 export function getChatTipsFooter(): string {
   return [
     '',
-    ' ',
     '─────────────',
-    '💬 Chat naturally for reminders, notes, passwords, and lists — no special format needed.',
-    '💡 Try: "remind me at 9am to drink water" · "remember my email is …" · "save gmail password as …"',
-    '📋 Lists: "add milk to groceries" or type *menu* to Create list through buttons',
+    '🤖 *How to chat with Bot:*',
+    'You can talk to me like a real assistant! No special formats or rigid commands required.',
+    '',
+    '⏰ *Reminders* ➔ "remind me at 9am to drink water"',
+    '📝 *Secure Notes* ➔ "remember my email is..."',
+    '🔐 *Passwords* ➔ "save gmail password as..."',
+    '',
+    '📋 *To-Do Lists:*',
+    '• Text naturally: "add milk to groceries"',
+    '• Or type *menu* to manage lists using buttons!',
   ].join('\n');
 }
 
@@ -53,7 +59,7 @@ function appendFooter(message: string, footer: string, marker: string): string {
 
 /** Compact tips on routine replies. */
 export function appendChatTips(message: string): string {
-  return appendFooter(message, getChatTipsFooter(), '💡 Try:');
+  return appendFooter(message, getChatTipsFooter(), 'How to chat with Bot');
 }
 
 /** Detailed tips for greeting & unknown intent. */

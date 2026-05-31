@@ -422,18 +422,25 @@ export class WhatsappController {
       // ── Deterministic time extraction ──────────────────────────────────────
       // Extract wall-clock time from AI's localTime or fall back to regex on raw message,
       // convert to UTC using the user's known timezone (or default IST), then override.
-      if (parsed.actionType === 'create_reminder') {
+      if (parsed.actionType === 'create_reminder' && msgTimestamp) {
         const timeStr = this.extractWallClockTime(parsed.localTime, message);
         if (timeStr) {
-          const tz = user.timezone && user.timezone !== 'UTC' ? user.timezone : 'Asia/Kolkata';
-          const utcDate = this.localTimeToUtc(timeStr, tz, msgTimestamp);
+          // Use known timezone offset, or default to IST (UTC+5:30)
+          let offsetMin = 330; // default IST
+          if (user.timezone && user.timezone !== 'UTC') {
+            try {
+              offsetMin = this.getTzOffsetMinutes(user.timezone, msgTimestamp);
+            } catch { /* fallback to default */ }
+          }
+          const utcDate = this.localTimeToUtc(timeStr, offsetMin, msgTimestamp);
           if (utcDate) {
+            this.logger.log(`Time: "${timeStr}" offset=${offsetMin}min → ${utcDate.toISOString()}`);
             // If user said "tomorrow" and target is on the same UTC day as msg, advance
             if (/\btomorrow\b/i.test(message) && this.isSameUtcDay(utcDate, msgTimestamp)) {
               utcDate.setDate(utcDate.getDate() + 1);
+              this.logger.log(`Tomorrow qualifier advanced to ${utcDate.toISOString()}`);
             }
             parsed.reminderDate = utcDate;
-            this.logger.log(`Time override: "${timeStr}" ${tz} → ${utcDate.toISOString()}`);
           }
         }
       }
@@ -1213,8 +1220,8 @@ export class WhatsappController {
     return null;
   }
 
-  /** Convert a local time string to UTC Date using the given IANA timezone. */
-  private localTimeToUtc(timeStr: string, timezone: string, msgTimestamp?: Date): Date | null {
+  /** Convert a local time string to UTC Date using the given offset in minutes. */
+  private localTimeToUtc(timeStr: string, offsetMin: number, msgTimestamp: Date): Date | null {
     const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
     if (!match) return null;
     let h = parseInt(match[1], 10);
@@ -1226,14 +1233,14 @@ export class WhatsappController {
     }
     if (h > 23 || m > 59) return null;
 
-    const offsetMin = this.getTzOffsetMinutes(timezone, msgTimestamp || new Date());
     const localMin = h * 60 + m;
     const utcMin = (localMin - offsetMin + 1440) % 1440;
-    const ref = msgTimestamp || new Date();
-    const dayMs = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0, 0);
+    const dayMs = Date.UTC(msgTimestamp.getUTCFullYear(), msgTimestamp.getUTCMonth(), msgTimestamp.getUTCDate(), 0, 0, 0, 0);
     const utcDate = new Date(dayMs + utcMin * 60000);
-    if (utcDate <= ref) {
+    this.logger.log(`localTimeToUtc: "${timeStr}" offset=${offsetMin} localMin=${localMin} utcMin=${utcMin} dayMs=${new Date(dayMs).toISOString()} rawDate=${utcDate.toISOString()} msgTime=${msgTimestamp.toISOString()}`);
+    if (utcDate <= msgTimestamp) {
       utcDate.setDate(utcDate.getDate() + 1);
+      this.logger.log(`  → pushed to next day: ${utcDate.toISOString()}`);
     }
     return utcDate;
   }

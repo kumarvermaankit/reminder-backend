@@ -9,6 +9,8 @@ import { PasswordService } from '../services/password.service';
 import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
 import { ListWorkflowService } from '../services/list-workflow.service';
+import { StockService } from '../services/stock.service';
+import { CricketService } from '../services/cricket.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 
@@ -27,6 +29,8 @@ export class WhatsappController {
     private readonly userContextService: UserContextService,
     private readonly todoListService: TodoListService,
     private readonly listWorkflowService: ListWorkflowService,
+    private readonly stockService: StockService,
+    private readonly cricketService: CricketService,
   ) {}
 
   @Post('webhook')
@@ -519,6 +523,18 @@ export class WhatsappController {
         case 'system_query':
           botResponse = await this.handleSystemQuery(message);
           break;
+        case 'check_stock':
+          botResponse = await this.handleCheckStock(parsed);
+          break;
+        case 'check_cricket':
+          botResponse = await this.handleCheckCricket(parsed);
+          break;
+        case 'stock_alert':
+          botResponse = await this.handleStockAlert(parsed, user, msgTimestamp);
+          break;
+        case 'match_alert':
+          botResponse = await this.handleMatchAlert(parsed, user, msgTimestamp);
+          break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
       }
@@ -916,6 +932,101 @@ export class WhatsappController {
       return `I couldn't understand that time. Please use HH:mm format, like 09:00 or 14:30.`;
     }
     return `Your daily prompt is currently set to ${user.dailyPromptTime || '09:00'}. Say "set daily prompt to 8am" to change it.`;
+  }
+
+  private async handleCheckStock(parsed: any): Promise<string> {
+    const query = parsed.stockSymbol || parsed.title || '';
+    if (!query) return "Which stock would you like to check? (e.g. 'price of Reliance' or 'check Tata Motors')";
+    const quote = await this.stockService.getQuote(query);
+    if (!quote) return `Sorry, I couldn't find data for "${query}". Try a different name (e.g. "reliance", "tata motors", "infy").`;
+    return this.stockService.formatQuote(quote);
+  }
+
+  private async handleCheckCricket(parsed: any): Promise<string> {
+    const query = parsed.matchQuery || parsed.title || '';
+    const matches = await this.cricketService.getLiveScores();
+    if (matches.length === 0) return "No live matches right now. Check back later! 🏏";
+    if (query) {
+      const match = await this.cricketService.searchMatch(query);
+      if (match) return this.cricketService.formatMatch(match);
+      return `I couldn't find a match matching "${query}". Here are all live matches:\n\n${matches.map(m => this.cricketService.formatMatchBrief(m)).join('\n\n')}`;
+    }
+    if (matches.length === 1) return this.cricketService.formatMatch(matches[0]);
+    return `*Live Matches:*\n\n${matches.map(m => this.cricketService.formatMatchBrief(m)).join('\n\n')}`;
+  }
+
+  private async handleStockAlert(parsed: any, user: any, msgTimestamp?: Date): Promise<string> {
+    const query = parsed.stockSymbol || parsed.title || '';
+    if (!query) return "Which stock would you like to track? (e.g. 'alert me when Reliance hits 5000')";
+    const title = parsed.targetPrice
+      ? `Stock Alert: ${query} ${parsed.priceDirection || 'above'} ₹${parsed.targetPrice}`
+      : `Stock Alert: ${query}`;
+    const interval = parsed.intervalMinutes || 60;
+    const now = msgTimestamp || new Date();
+    const metadata = {
+      category: 'finance',
+      priority: 'medium',
+      source: 'whatsapp',
+      type: 'stock_alert',
+      stockSymbol: query,
+      targetPrice: parsed.targetPrice,
+      priceDirection: parsed.priceDirection || 'above',
+    };
+    try {
+      await this.reminderService.createReminder({
+        userId: user.id,
+        title,
+        description: parsed.description || `Tracking ${query}`,
+        reminderDate: new Date(now.getTime() + interval * 60 * 1000),
+        msgTimestamp,
+        isCompleted: false,
+        isPersistent: true,
+        reminderInterval: interval,
+        maxReminderCount: 0,
+        reminderCount: 0,
+        metadata,
+      });
+      const detail = parsed.targetPrice
+        ? ` when it goes ${parsed.priceDirection || 'above'} ₹${parsed.targetPrice}`
+        : '';
+      return `📈 I'll track *${query}*${detail} and send updates every ${interval} minutes! Say "done" to stop.`;
+    } catch (e) {
+      this.logger.error('Failed to create stock alert:', e);
+      return 'Sorry, I could not set up that stock alert.';
+    }
+  }
+
+  private async handleMatchAlert(parsed: any, user: any, msgTimestamp?: Date): Promise<string> {
+    const query = parsed.matchQuery || parsed.title || '';
+    if (!query) return "Which match would you like to follow? (e.g. 'send me India match updates every 15 min')";
+    const interval = parsed.intervalMinutes || 30;
+    const now = msgTimestamp || new Date();
+    const metadata = {
+      category: 'personal',
+      priority: 'medium',
+      source: 'whatsapp',
+      type: 'match_alert',
+      matchQuery: query,
+    };
+    try {
+      await this.reminderService.createReminder({
+        userId: user.id,
+        title: `Match Alert: ${query}`,
+        description: parsed.description || `Score updates for ${query}`,
+        reminderDate: new Date(now.getTime() + interval * 60 * 1000),
+        msgTimestamp,
+        isCompleted: false,
+        isPersistent: true,
+        reminderInterval: interval,
+        maxReminderCount: 0,
+        reminderCount: 0,
+        metadata,
+      });
+      return `🏏 I'll send you score updates for *${query}* every ${interval} minutes! Say "done" to stop.`;
+    } catch (e) {
+      this.logger.error('Failed to create match alert:', e);
+      return 'Sorry, I could not set up that match alert.';
+    }
   }
 
   private async handleSystemQuery(message: string): Promise<string> {

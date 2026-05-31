@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { UserService } from './user.service';
 import { TodoListService } from './todo-list.service';
+import { StockService } from './stock.service';
+import { CricketService } from './cricket.service';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { User } from '../entities/user.entity';
 
@@ -13,6 +15,8 @@ export class NotificationService {
     private readonly whatsappService: WhatsappService,
     private readonly userService: UserService,
     private readonly todoListService: TodoListService,
+    private readonly stockService: StockService,
+    private readonly cricketService: CricketService,
   ) {}
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
@@ -38,7 +42,8 @@ export class NotificationService {
         return false;
       }
 
-      const message = this.formatReminderMessage(reminder.title, reminder.description, user.name, reminder.reminderCount);
+      const message = await this.buildMessage(reminder, user.name);
+      if (!message) return false;
 
       // Send based on user's preferred contact method
       let sent = false;
@@ -57,11 +62,9 @@ export class NotificationService {
           }
           break;
         case 'email':
-          // TODO: Implement email service
           this.logger.warn(`Email service not implemented for user ${user.id}`);
           break;
         case 'sms':
-          // TODO: Implement SMS service
           this.logger.warn(`SMS service not implemented for user ${user.id}`);
           break;
       }
@@ -70,7 +73,6 @@ export class NotificationService {
         this.logger.log(`Successfully sent reminder ${schedule.id} to user ${user.id} via ${user.preferredContactMethod}`);
         await this.incrementDailyReminderCount(user.id);
 
-        // Track last 5 reminder IDs sent to this user (most recent first)
         const lastIds = user.lastReminderIds || [];
         lastIds.unshift(schedule.reminderId);
         if (lastIds.length > 5) lastIds.pop();
@@ -87,7 +89,46 @@ export class NotificationService {
     }
   }
 
-private formatReminderMessage(title: string, description: string, userName: string, reminderCount: number = 1): string {
+  private async buildMessage(reminder: any, userName: string): Promise<string | null> {
+    const meta = reminder.metadata || {};
+    // Inline live data for stock alerts
+    if (meta.type === 'stock_alert') {
+      const quote = await this.stockService.getQuote(meta.stockSymbol || reminder.title);
+      if (!quote) return null;
+      let triggered = '';
+      if (meta.targetPrice) {
+        const hitAbove = meta.priceDirection === 'above' && quote.price >= meta.targetPrice;
+        const hitBelow = meta.priceDirection === 'below' && quote.price <= meta.targetPrice;
+        if (hitAbove || hitBelow) {
+          triggered = `\n\n🎯 *TARGET HIT!* ${quote.company} is now at ₹${quote.price.toFixed(2)}`;
+        }
+      }
+      return `${this.greeting(userName)} 📈 *${quote.company}*
+${this.stockService.formatQuote(quote)}${triggered}`;
+    }
+    // Inline live data for match alerts
+    if (meta.type === 'match_alert') {
+      const matches = await this.cricketService.getLiveScores();
+      if (matches.length === 0) return `${this.greeting(userName)} 🏏 No live matches right now.`;
+      const match = meta.matchQuery
+        ? await this.cricketService.searchMatch(meta.matchQuery)
+        : matches[0];
+      if (!match) return `${this.greeting(userName)} 🏏 No live matches right now.`;
+      return `${this.greeting(userName)} 🏏 *${match.title}*
+📊 ${match.score}
+_${match.status}_`;
+    }
+    // Normal reminders
+    return this.formatReminderMessage(reminder.title, reminder.description, userName, reminder.reminderCount);
+  }
+
+  private greeting(userName: string): string {
+    return (!userName || userName === 'there' || userName.startsWith('WhatsApp User'))
+      ? 'Hi!'
+      : `Hey ${userName}!`;
+  }
+
+  private formatReminderMessage(title: string, description: string, userName: string, reminderCount: number = 1): string {
     const safeCount = Math.max(1, reminderCount);
     const descStr = description ? ` - ${description}` : '';
     const greeting = (!userName || userName === 'there' || userName.startsWith('WhatsApp User'))

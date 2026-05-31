@@ -35,7 +35,8 @@
     "replicate": "^1.4.0",
     "rxjs": "^7.8.1",
     "together-ai": "^0.39.0",
-    "typeorm": "^0.3.28"
+    "typeorm": "^0.3.28",
+    "yahoo-finance2": "^3.15.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",

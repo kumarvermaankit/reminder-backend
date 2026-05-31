@@ -92,6 +92,28 @@ export class UserContextService {
     await this.setListWorkflow(userId, null);
   }
 
+  async setPendingTimezoneMessage(userId: string, message: string): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (!ctx) {
+      ctx = this.repo.create({ userId, conversation: [] });
+    }
+    ctx.pendingTimezoneMessage = message;
+    await this.repo.save(ctx);
+  }
+
+  async getPendingTimezoneMessage(userId: string): Promise<string | null> {
+    const ctx = await this.repo.findOne({ where: { userId } });
+    return ctx?.pendingTimezoneMessage || null;
+  }
+
+  async clearPendingTimezoneMessage(userId: string): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (ctx) {
+      ctx.pendingTimezoneMessage = null;
+      await this.repo.save(ctx);
+    }
+  }
+
   async clear(userId: string): Promise<void> {
     await this.repo.delete({ userId });
   }

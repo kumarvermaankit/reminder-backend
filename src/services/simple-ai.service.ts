@@ -169,7 +169,6 @@ export class SimpleAiService {
   async parseReminderInput(
     userInput: string,
     userId?: string,
-    timezone?: string,
     conversation?: { role: string; text: string }[],
     pendingReminders?: { id: string; title: string }[],
     msgTimestamp?: Date,
@@ -194,14 +193,14 @@ export class SimpleAiService {
     try {
       switch (provider.name) {
         case 'groq':
-          return await this.parseWithGroq(provider, fullPrompt, msgTimestamp, timezone);
+          return await this.parseWithGroq(provider, fullPrompt);
         case 'together':
         case 'deepseek':
-          return await this.parseWithTogether(provider, fullPrompt, msgTimestamp, timezone);
+          return await this.parseWithTogether(provider, fullPrompt);
         case 'replicate':
-          return await this.parseWithReplicate(provider, fullPrompt, msgTimestamp, timezone);
+          return await this.parseWithReplicate(provider, fullPrompt);
         case 'gemini':
-          return await this.parseWithGemini(provider, fullPrompt, msgTimestamp, timezone);
+          return await this.parseWithGemini(provider, fullPrompt);
         default:
           throw new Error(`Unknown provider: ${provider.name}`);
       }
@@ -209,7 +208,7 @@ export class SimpleAiService {
       this.logger.error(`Failed to parse with ${provider.name}:`, error);
       if (this.providers.length > 1) {
         this.providers.shift();
-        return this.parseReminderInput(userInput, userId, timezone, conversation, pendingReminders, msgTimestamp);
+        return this.parseReminderInput(userInput, userId, conversation, pendingReminders, msgTimestamp);
       }
       throw error;
     }
@@ -328,139 +327,14 @@ export class SimpleAiService {
     return null;
   }
 
-  private getUtcOffsetMinutes(timezone: string, date: Date): number {
-    const ms = date.getTime();
-    const tzStr = date.toLocaleString('en-US', {
-      timeZone: timezone,
-      hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
-    const [datePart, timePart] = tzStr.split(', ');
-    const [m, d, y] = datePart.split('/');
-    const [h, mn, s] = timePart.split(':');
-    const tzDate = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
-    return (tzDate.getTime() - ms) / 60000;
-  }
-
-  /** Prompt block: anchor "now" on WhatsApp msgTimestamp vs server clock — optionally with known IANA timezone. */
-  private buildReminderTimeContext(msgTimestamp?: Date, timezone?: string): string {
-    const userMsgUtc = (msgTimestamp || new Date()).toISOString();
-    const serverUtc = new Date().toISOString();
-    const lagMinutes = Math.round(
-      (new Date(serverUtc).getTime() - new Date(userMsgUtc).getTime()) / 60000,
-    );
-    this.logger.log(
-      `reminder time context: userMsgUtc=${userMsgUtc} serverUtc=${serverUtc} lagMin=${lagMinutes}`,
-    );
-
-    const knownTimezoneBlock = timezone && timezone !== 'UTC'
-      ? `\n- KNOWN USER TIMEZONE: ${timezone} (UTC offset ${this.getUtcOffsetMinutes(timezone, msgTimestamp || new Date())} min). Use this IANA zone for all local→UTC conversions — do NOT infer a different offset.\n`
-      : `\n- Infer the user's UTC offset from when they sent the message vs the wall-clock they mention (e.g. if message is 09:44Z and they say "15:15", offset is about +05:30).\n`;
-
-    return `TIME REFERENCE:${knownTimezoneBlock}
-- User message sent at (UTC): ${userMsgUtc}  ← this is the user's "now"; use for all relative times
-- Server time (UTC): ${serverUtc}  (processing lag ~${lagMinutes} min — use user message time, not server time)
-- NEVER put the user's local hour into the UTC string. WRONG: message 2026-05-30T09:44:00Z, user wants 15:15 local → "2026-05-30T15:15:00Z". RIGHT: "2026-05-30T09:45:00Z" (subtract offset from local time to get UTC).
-- For wall-clock times: convert local → UTC before returning reminderDate.
-- For relative times ("in 5 minutes", "in 1 hour"): add to the user message UTC timestamp, not server time.
-- If only an interval is given (every X min) with no start time: reminderDate = user message UTC + intervalMinutes.
-- Output reminderDate as ISO-8601 UTC with Z suffix only.`;
-  }
-
-  /** Standard UTC offsets in minutes (east positive), 15/30/45 min steps. */
-  private static readonly STANDARD_UTC_OFFSET_MINUTES = [
-    0, 60, 120, 180, 240, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 690, 720, 780,
-    -60, -120, -180, -240, -300, -360, -420, -480, -540, -600, -660, -720,
-    -30, 30, 90, 150, 210, 270, 345, -90, -150, -210, -270,
-  ];
-  private minutesOfDayUtc(d: Date): number {
-    return d.getUTCHours() * 60 + d.getUTCMinutes();
-  }
-
-  /**
-   * AI often returns local wall-clock as UTC (e.g. 15:15Z instead of 09:45Z for IST).
-   * When gap ≈ standard UTC offset and intended delay is small, fix to msgTimestamp + delay.
-   * If knownOffsetMin is provided (from user's timezone), prefer it over standard offset matching.
-   */
-  private correctReminderDateFromMsgTimestamp(msgTimestamp: Date, reminderDate: Date, knownOffsetMin?: number): Date {
-    const diffMs = reminderDate.getTime() - msgTimestamp.getTime();
-    const diffMin = diffMs / 60000;
-    if (diffMin <= 0 || diffMin > 24 * 60) return reminderDate;
-
-    let offsetMin: number | null = null;
-    if (knownOffsetMin != null && knownOffsetMin !== 0) {
-      offsetMin = knownOffsetMin;
-    } else {
-      for (const o of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
-        if (Math.abs(diffMin - o) <= 3) {
-          offsetMin = o;
-          break;
-        }
-      }
-    }
-    if (offsetMin === null || offsetMin === 0) return reminderDate;
-
-    const intendedDelayMin = diffMin - offsetMin;
-    if (intendedDelayMin <= 0 || intendedDelayMin > 12 * 60) return reminderDate;
-
-    const localMsgMin = (this.minutesOfDayUtc(msgTimestamp) + offsetMin + 24 * 60) % (24 * 60);
-    const remMin = this.minutesOfDayUtc(reminderDate);
-    const clockDelta = Math.min(
-      Math.abs(remMin - localMsgMin),
-      24 * 60 - Math.abs(remMin - localMsgMin),
-    );
-    if (clockDelta > 120) return reminderDate;
-
-    const corrected = new Date(msgTimestamp.getTime() + intendedDelayMin * 60 * 1000);
-    this.logger.log(
-      `corrected local-as-UTC: ${reminderDate.toISOString()} → ${corrected.toISOString()} ` +
-        `(offset=${offsetMin}min, intendedDelay=${Math.round(intendedDelayMin)}min)`,
-    );
-    return corrected;
-  }
-
-  private applyReminderDateFromMsgTimestamp(parsed: any, msgTimestamp?: Date, timezone?: string): void {
-    if (!parsed.reminderDate || !msgTimestamp) return;
-    const rem =
-      parsed.reminderDate instanceof Date
-        ? parsed.reminderDate
-        : this.parseReminderDateUtc(String(parsed.reminderDate));
-    if (!rem) {
-      delete parsed.reminderDate;
-      return;
-    }
-    const knownOffset = timezone && timezone !== 'UTC'
-      ? this.getUtcOffsetMinutes(timezone, msgTimestamp)
-      : undefined;
-    parsed.reminderDate = this.correctReminderDateFromMsgTimestamp(msgTimestamp, rem, knownOffset);
-  }
-
-  private parseReminderDateUtc(dateStr: string): Date | null {
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) {
-        this.logger.warn(`parseReminderDateUtc: unparseable: "${dateStr}"`);
-        return null;
-      }
-      return date;
-    } catch (e: any) {
-      this.logger.error(`parseReminderDateUtc: error for "${dateStr}": ${e.message}`);
-      return null;
-    }
-  }
-
-  private async parseWithGroq(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
-
+  private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse: "${userInput}"
-    ${timeContext}
     Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
-    Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
-    TIME RULES:
+    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+    RULES:
     - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
-    - Relative time ("in 5 minutes"): set reminderDate to msgTimestamp + interval. Leave localTime empty.
-    - Both ("at 5pm every 30 min"): set both localTime and intervalMinutes.
+    - Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
+    - Do NOT compute any UTC timestamps — leave that to the system.
     `;
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -486,29 +360,22 @@ export class SimpleAiService {
       throw new Error('Invalid JSON from AI');
     }
     
-    this.logger.log(`parseWithGroq raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-
-    if (parsed.reminderDate) {
-      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
-      if (!parsed.reminderDate) delete parsed.reminderDate;
-    }
+    this.logger.log(`parseWithGroq raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
 
     return parsed;
   }
 
-  private async parseWithGemini(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
+  private async parseWithGemini(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
-    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
 
     const prompt = `Parse: "${userInput}"
-${timeContext}
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
-Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
-TIME RULES:
+RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
-- Relative time ("in 5 minutes", "in 1 hour"): set reminderDate to msgTimestamp + interval. Leave localTime empty.
-- Both: set both localTime and intervalMinutes.
+- Relative time ("in 5 minutes", "in 1 hour"): set intervalMinutes. Leave reminderDate and localTime empty.
+- Do NOT compute any UTC timestamps.
 `;
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -524,23 +391,17 @@ TIME RULES:
     content = content.trim();
     
     const parsed = JSON.parse(content);
-    this.logger.log(`parseWithGemini raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-    
-    if (parsed.reminderDate) {
-      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
-      if (!parsed.reminderDate) delete parsed.reminderDate;
-    }
+    this.logger.log(`parseWithGemini raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     
     return parsed;
   }
 
-  private async parseWithTogether(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
+  private async parseWithTogether(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}".\n${timeContext}\nReturn JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount\n\nTIME RULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set reminderDate to msgTimestamp + interval. Leave localTime empty.\n- Both: set both localTime and intervalMinutes.` }
+        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -549,26 +410,19 @@ TIME RULES:
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
-    this.logger.log(`parseWithTogether raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-    if (parsed.reminderDate) {
-      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
-      if (!parsed.reminderDate) delete parsed.reminderDate;
-    }
+    this.logger.log(`parseWithTogether raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
   }
 
-  private async parseWithReplicate(provider: AIProvider, userInput: string, msgTimestamp?: Date, timezone?: string): Promise<ParsedReminder> {
-    const timeContext = this.buildReminderTimeContext(msgTimestamp, timezone);
+  private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
-${timeContext}
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
 
-TIME RULES:
+RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
-- Relative time ("in 5 minutes"): set reminderDate to msgTimestamp + interval. Leave localTime empty.
-- Both: set both localTime and intervalMinutes.
-- Use EXACT user words for title. morning=9am, afternoon=2pm, evening=6pm, night=8pm.`;
+- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
+- Do NOT compute UTC timestamps. morning=9am, afternoon=2pm, evening=6pm, night=8pm.`;
 
     const response = await provider.client.run(provider.models.parsing, {
       input: {
@@ -582,11 +436,7 @@ TIME RULES:
     // Extract JSON from the response (handle markdown code blocks)
     const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
-    this.logger.log(`parseWithReplicate raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-    if (parsed.reminderDate) {
-      parsed.reminderDate = this.parseReminderDateUtc(parsed.reminderDate);
-      if (!parsed.reminderDate) delete parsed.reminderDate;
-    }
+    this.logger.log(`parseWithReplicate raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
   }
 

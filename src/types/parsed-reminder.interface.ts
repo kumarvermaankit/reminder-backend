@@ -28,8 +28,6 @@ export interface ParsedReminder {
   dailyPromptTime?: string;
   /** Raw local wall-clock time verbatim from user (e.g. "5:05 PM", "9am") — no UTC conversion. */
   localTime?: string;
-  /** Inferred UTC offset in minutes when timezone was deduced from localTime + msgTimestamp. */
-  inferredUtcOffsetMinutes?: number;
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;

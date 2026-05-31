@@ -330,6 +330,24 @@ export class WhatsappController {
         return;
       }
 
+      // Check if user has a pending reminder message and replies with a city/timezone
+      const pendingMsg = await this.userContextService.getPendingTimezoneMessage(user.id);
+      if (pendingMsg && user.timezone === 'UTC') {
+        const tz = this.lookupTimezone(message) || this.guessTimezoneFromLocation(message);
+        if (tz) {
+          await this.userService.updateUser(user.id, { timezone: tz });
+          user.timezone = tz;
+          await this.userContextService.clearPendingTimezoneMessage(user.id);
+          this.logger.log(`Timezone set to ${tz}, re-processing pending message: "${pendingMsg}"`);
+          message = pendingMsg;
+        } else {
+          const botMsg = `I'm not sure which timezone that is. Try a city name (e.g. "Mumbai", "New York") or timezone code (e.g. "IST", "UTC+5:30").`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+          return;
+        }
+      }
+
       // Handle city-only response after name was set (e.g. user says "Mumbai" or "from Mumbai")
       if (user.name !== 'there' && user.timezone === 'UTC') {
         const cityMatch = message.match(/(?:i(?:'| a)m\s+)?(?:from|in|at\s+)?(.+)/i);
@@ -415,33 +433,27 @@ export class WhatsappController {
       // Parse message via AI with full context
       this.logger.log('Parsing message via AI...');
       const parsed = await this.aiService.parseReminderInput(
-        message, user.id, user.timezone, conversation, pendingReminders, msgTimestamp,
+        message, user.id, conversation, pendingReminders, msgTimestamp,
       );
-      this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, reminderDate=${parsed.reminderDate || 'null'}`);
+      this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, localTime="${parsed.localTime || ''}"`);
 
-      // ── Deterministic time extraction ──────────────────────────────────────
-      // Extract wall-clock time from AI's localTime or fall back to regex on raw message,
-      // convert to UTC using the user's known timezone (or default IST), then override.
-      if (parsed.actionType === 'create_reminder' && msgTimestamp) {
-        const timeStr = this.extractWallClockTime(parsed.localTime, message);
-        if (timeStr) {
-          // Use known timezone offset, or default to IST (UTC+5:30)
-          let offsetMin = 330; // default IST
-          if (user.timezone && user.timezone !== 'UTC') {
-            try {
-              offsetMin = this.getTzOffsetMinutes(user.timezone, msgTimestamp);
-            } catch { /* fallback to default */ }
-          }
-          const utcDate = this.localTimeToUtc(timeStr, offsetMin, msgTimestamp);
-          if (utcDate) {
-            this.logger.log(`Time: "${timeStr}" offset=${offsetMin}min → ${utcDate.toISOString()}`);
-            // If user said "tomorrow" and target is on the same UTC day as msg, advance
-            if (/\btomorrow\b/i.test(message) && this.isSameUtcDay(utcDate, msgTimestamp)) {
-              utcDate.setDate(utcDate.getDate() + 1);
-              this.logger.log(`Tomorrow qualifier advanced to ${utcDate.toISOString()}`);
-            }
-            parsed.reminderDate = utcDate;
-          }
+      // ── Timezone check + time conversion ────────────────────────────────────
+      // If user hasn't set a timezone and asks for a reminder with a wall-clock time,
+      // save the message and ask for their city first.
+      if (parsed.actionType === 'create_reminder' && parsed.localTime && msgTimestamp) {
+        if (user.timezone === 'UTC') {
+          await this.userContextService.setPendingTimezoneMessage(user.id, message);
+          const botMsg = `I see you want a reminder at ${parsed.localTime}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;
+          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+          return;
+        }
+        // Convert local wall-clock time to UTC using known timezone
+        const offsetMin = this.getOffsetMinutes(user.timezone, msgTimestamp);
+        const utcDate = this.localTimeToUtc(parsed.localTime, offsetMin, msgTimestamp);
+        if (utcDate) {
+          this.logger.log(`Time: "${parsed.localTime}" tz=${user.timezone} offset=${offsetMin}min → ${utcDate.toISOString()}`);
+          parsed.reminderDate = utcDate;
         }
       }
 
@@ -1206,61 +1218,55 @@ export class WhatsappController {
     return Math.round((to.getTime() - from.getTime()) / 86400000);
   }
 
-  /** Extract a wall-clock time string from AI localTime or raw message. Returns "7am", "5:15 PM", etc. */
-  private extractWallClockTime(localTime: string | null, message: string): string | null {
-    const raw = localTime || message;
-    const patterns = [
-      /\b(\d{1,2}):(\d{2})\s*(am|pm)\b/i,
-      /\b(\d{1,2})\s*(am|pm)\b/i,
-    ];
-    for (const pat of patterns) {
-      const m = raw.match(pat);
-      if (m) return m[0].trim().toLowerCase();
-    }
-    return null;
-  }
-
-  /** Convert a local time string to UTC Date using the given offset in minutes. */
-  private localTimeToUtc(timeStr: string, offsetMin: number, msgTimestamp: Date): Date | null {
-    const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  /** Extract time string from AI localTime (already clean). */
+  private parseTimeString(timeStr: string): { h: number; m: number } | null {
+    const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
     if (!match) return null;
     let h = parseInt(match[1], 10);
     const m = parseInt(match[2] || '0', 10);
     const mer = match[3];
     if (mer) {
-      if (mer === 'pm' && h !== 12) h += 12;
-      if (mer === 'am' && h === 12) h = 0;
+      if (mer.toLowerCase() === 'pm' && h !== 12) h += 12;
+      if (mer.toLowerCase() === 'am' && h === 12) h = 0;
     }
     if (h > 23 || m > 59) return null;
+    return { h, m };
+  }
 
-    const localMin = h * 60 + m;
+  /** Convert a local wall-clock string to UTC Date given offset minutes. */
+  private localTimeToUtc(timeStr: string, offsetMin: number, msgTimestamp: Date): Date | null {
+    const parsed = this.parseTimeString(timeStr);
+    if (!parsed) return null;
+    const localMin = parsed.h * 60 + parsed.m;
     const utcMin = (localMin - offsetMin + 1440) % 1440;
-    const dayMs = Date.UTC(msgTimestamp.getUTCFullYear(), msgTimestamp.getUTCMonth(), msgTimestamp.getUTCDate(), 0, 0, 0, 0);
-    const utcDate = new Date(dayMs + utcMin * 60000);
-    this.logger.log(`localTimeToUtc: "${timeStr}" offset=${offsetMin} localMin=${localMin} utcMin=${utcMin} dayMs=${new Date(dayMs).toISOString()} rawDate=${utcDate.toISOString()} msgTime=${msgTimestamp.toISOString()}`);
+    const dayStart = Date.UTC(msgTimestamp.getUTCFullYear(), msgTimestamp.getUTCMonth(), msgTimestamp.getUTCDate(), 0, 0, 0, 0);
+    const utcDate = new Date(dayStart + utcMin * 60000);
+    this.logger.log(`localTimeToUtc: "${timeStr}" offset=${offsetMin} localMin=${localMin} utcMin=${utcMin} → ${utcDate.toISOString()}`);
     if (utcDate <= msgTimestamp) {
       utcDate.setDate(utcDate.getDate() + 1);
-      this.logger.log(`  → pushed to next day: ${utcDate.toISOString()}`);
+      this.logger.log(`  → advanced to next day: ${utcDate.toISOString()}`);
     }
     return utcDate;
   }
 
-  /** Get UTC offset minutes for an IANA timezone on a given date. */
-  private getTzOffsetMinutes(timezone: string, date: Date): number {
+  /** Get UTC offset minutes for an IANA timezone at a given date. */
+  private getOffsetMinutes(timezone: string, date: Date): number {
     try {
-      const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
-      const tzStr = date.toLocaleString('en-US', { timeZone: timezone });
-      return Math.round((new Date(tzStr).getTime() - new Date(utcStr).getTime()) / 60000);
+      const ms = date.getTime();
+      const tzStr = date.toLocaleString('en-US', {
+        timeZone: timezone,
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+      const [datePart, timePart] = tzStr.split(', ');
+      const [m, d, y] = datePart.split('/');
+      const [h, mn, s] = timePart.split(':');
+      const tzDate = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
+      return (tzDate.getTime() - ms) / 60000;
     } catch {
       return 0;
     }
-  }
-
-  /** True if both dates fall on the same UTC calendar day. */
-  private isSameUtcDay(a: Date, b: Date): boolean {
-    return a.getUTCFullYear() === b.getUTCFullYear()
-      && a.getUTCMonth() === b.getUTCMonth()
-      && a.getUTCDate() === b.getUTCDate();
   }
 
   /** When profile timezone is UTC, pick IANA zone that best matches msg vs reminder calendar. */

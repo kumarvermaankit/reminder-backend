@@ -23,6 +23,9 @@ export class UserContextEntity {
   @Column('simple-json', { nullable: true, name: 'list_workflow' })
   listWorkflow: ListWorkflow | null;
 
+  @Column({ nullable: true, name: 'pending_timezone_message' })
+  pendingTimezoneMessage: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

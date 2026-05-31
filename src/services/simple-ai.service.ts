@@ -300,11 +300,14 @@ export class SimpleAiService {
    * UTC time is in the future AND the implied local "now" (msgTimestamp + offset)
    * falls within waking hours (7am – 11pm local).
    */
-  private inferUtcOffset(localTime: string, msgTimestamp: Date): number | null {
+  private inferUtcOffset(localTime: string, msgTimestamp: Date, timezone?: string): number | null {
     const parsed = this.parseLocalTime(localTime);
     if (!parsed) return null;
     const { hours, minutes: mins } = parsed;
     const localTargetMin = hours * 60 + mins;
+
+    // If user has a known timezone, get its offset to use as a tiebreaker bonus
+    const preferredOffset = timezone ? this.getUtcOffsetMinutes(timezone, msgTimestamp) : undefined;
 
     let best: { offset: number; score: number } | null = null;
     for (const offset of SimpleAiService.STANDARD_UTC_OFFSET_MINUTES) {
@@ -327,7 +330,11 @@ export class SimpleAiService {
       const localNowMin = (msgMin + offset + 24 * 60) % (24 * 60);
       const wakeScore = localNowMin >= 7 * 60 && localNowMin <= 23 * 60 ? 10 : 0;
       const delayScore = delayMin <= 12 * 60 ? 20 : 10;
-      const score = wakeScore + delayScore;
+      // Tiebreaker 1: prefer shorter delay
+      const delayTiebreaker = Math.max(0, 1 - delayMin / (24 * 60));
+      // Tiebreaker 2: prefer known timezone offset
+      const tzBonus = preferredOffset !== undefined && offset === preferredOffset ? 1 : 0;
+      const score = wakeScore + delayScore + delayTiebreaker + tzBonus;
 
       if (!best || score > best.score) {
         best = { offset, score };
@@ -340,8 +347,8 @@ export class SimpleAiService {
    * Convert a raw local time string ("5:05 PM", "9am", "15:15") to UTC Date using
    * the inferred offset. Falls back to returning null.
    */
-  private localTimeToUtc(localTime: string, msgTimestamp: Date): { date: Date; offsetMinutes: number } | null {
-    const offset = this.inferUtcOffset(localTime, msgTimestamp);
+  private localTimeToUtc(localTime: string, msgTimestamp: Date, timezone?: string): { date: Date; offsetMinutes: number } | null {
+    const offset = this.inferUtcOffset(localTime, msgTimestamp, timezone);
     if (offset === null) return null;
 
     const parsed = this.parseLocalTime(localTime);
@@ -549,8 +556,9 @@ export class SimpleAiService {
     
     this.logger.log(`parseWithGroq raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
 
-    if (parsed.localTime && !parsed.reminderDate && msgTimestamp) {
-      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp);
+    // Always prefer localTime inference over AI's reminderDate (AI often gets UTC conversion wrong)
+    if (parsed.localTime && msgTimestamp) {
+      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp, timezone);
       if (result) {
         parsed.reminderDate = result.date;
         parsed.inferredUtcOffsetMinutes = result.offsetMinutes;
@@ -597,8 +605,9 @@ TIME RULES:
     const parsed = JSON.parse(content);
     this.logger.log(`parseWithGemini raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
     
-    if (parsed.localTime && !parsed.reminderDate && msgTimestamp) {
-      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp);
+    // Always prefer localTime inference over AI's reminderDate (AI often gets UTC conversion wrong)
+    if (parsed.localTime && msgTimestamp) {
+      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp, timezone);
       if (result) {
         parsed.reminderDate = result.date;
         parsed.inferredUtcOffsetMinutes = result.offsetMinutes;
@@ -631,8 +640,9 @@ TIME RULES:
     if (!content) throw new Error('No response from Together');
     const parsed = JSON.parse(content);
     this.logger.log(`parseWithTogether raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-    if (parsed.localTime && !parsed.reminderDate && msgTimestamp) {
-      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp);
+    // Always prefer localTime inference over AI's reminderDate (AI often gets UTC conversion wrong)
+    if (parsed.localTime && msgTimestamp) {
+      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp, timezone);
       if (result) {
         parsed.reminderDate = result.date;
         parsed.inferredUtcOffsetMinutes = result.offsetMinutes;
@@ -673,8 +683,9 @@ TIME RULES:
     const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithReplicate raw reminderDate="${parsed.reminderDate}" localTime="${parsed.localTime}"`);
-    if (parsed.localTime && !parsed.reminderDate && msgTimestamp) {
-      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp);
+    // Always prefer localTime inference over AI's reminderDate (AI often gets UTC conversion wrong)
+    if (parsed.localTime && msgTimestamp) {
+      const result = this.localTimeToUtc(parsed.localTime, msgTimestamp, timezone);
       if (result) {
         parsed.reminderDate = result.date;
         parsed.inferredUtcOffsetMinutes = result.offsetMinutes;

@@ -51,6 +51,38 @@ const COMPANY_MAP: Record<string, string> = {
   'nifty': '^NSEI',
   'sensex': '^BSESN',
   'bank nifty': '^NSEBANK',
+  'ongc': 'ONGC.NS',
+  'ntpc': 'NTPC.NS',
+  'power grid': 'POWERGRID.NS',
+  'coal india': 'COALINDIA.NS',
+  'hindalco': 'HINDALCO.NS',
+  'tata steel': 'TATASTEEL.NS',
+  'jsw': 'JSWSTEEL.NS',
+  'jsw steel': 'JSWSTEEL.NS',
+  'l&t': 'LT.NS',
+  'lt': 'LT.NS',
+  'larsen': 'LT.NS',
+  'ultra tech': 'ULTRACEMCO.NS',
+  'ultratech': 'ULTRACEMCO.NS',
+  'hdfc life': 'HDFCLIFE.NS',
+  'sbi life': 'SBILIFE.NS',
+  'tata consumer': 'TATACONSUM.NS',
+  'tata power': 'TATAPOWER.NS',
+  'tata chemicals': 'TATACHEM.NS',
+  'dr reddy': 'DRREDDY.NS',
+  'cipla': 'CIPLA.NS',
+  'divis': 'DIVISLAB.NS',
+  'divi\'s': 'DIVISLAB.NS',
+  'nestle': 'NESTLEIND.NS',
+  'britannia': 'BRITANNIA.NS',
+  'hul': 'HINDUNILVR.NS',
+  'hindustan unilever': 'HINDUNILVR.NS',
+  'm&m': 'M&M.NS',
+  'mahindra': 'M&M.NS',
+  'hero': 'HEROMOTOCO.NS',
+  'hero moto': 'HEROMOTOCO.NS',
+  'eicher': 'EICHERMOT.NS',
+  'bajaj auto': 'BAJAJ-AUTO.NS',
 };
 
 @Injectable()
@@ -59,13 +91,31 @@ export class StockService {
 
   async getQuote(query: string): Promise<StockQuote | null> {
     const symbol = this.resolveSymbol(query);
-    if (!symbol) return null;
+    if (!symbol) {
+      // Try yahoo search as fallback for unknown company names
+      try {
+        const searchRes: any = await yahooFinance.search(query, { quotesCount: 5, newsCount: 0 });
+        if (searchRes.quotes && searchRes.quotes.length > 0) {
+          const best = searchRes.quotes[0];
+          if ((best.exchange === 'NSI' || best.exchange === 'BSE' || best.isYahooFinance) && best.symbol) {
+            return this.fetchQuote(best.symbol, best.shortname || best.longname || query);
+          }
+        }
+      } catch {
+        // ignore search failure
+      }
+      return null;
+    }
+    return this.fetchQuote(symbol, query);
+  }
+
+  private async fetchQuote(symbol: string, fallbackName: string): Promise<StockQuote | null> {
     try {
       const result: any = await yahooFinance.quote(symbol);
       if (!result || !result.regularMarketPrice) return null;
       return {
         symbol: result.symbol || symbol,
-        company: result.shortName || result.longName || query,
+        company: result.shortName || result.longName || fallbackName,
         price: result.regularMarketPrice,
         currency: result.currency || 'INR',
         changePercent: result.regularMarketChangePercent || 0,
@@ -116,11 +166,23 @@ export class StockService {
    Day range: ₹${quote.dayLow.toFixed(2)} - ₹${quote.dayHigh.toFixed(2)}${capStr}`;
   }
 
+  /** Extract NSE/BSE symbol from a query — supports full sentences like "price of reliance" */
   private resolveSymbol(query: string): string | null {
     const clean = query.toLowerCase().trim();
-    if (COMPANY_MAP[clean]) return COMPANY_MAP[clean];
+
+    // Direct NSE/BSE/Index symbol
     if (clean.endsWith('.ns') || clean.endsWith('.bo') || clean.startsWith('^')) return clean.toUpperCase();
     if (/^\d{4,}$/.test(clean)) return `${clean}.NS`;
+
+    // Check if the full query matches a known company
+    if (COMPANY_MAP[clean]) return COMPANY_MAP[clean];
+
+    // Search for known company names within the sentence
+    const sortedKeys = Object.keys(COMPANY_MAP).sort((a, b) => b.length - a.length); // longest first
+    for (const key of sortedKeys) {
+      if (clean.includes(key)) return COMPANY_MAP[key];
+    }
+
     return null;
   }
 }

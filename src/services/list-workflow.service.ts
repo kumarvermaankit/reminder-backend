@@ -347,26 +347,25 @@ export class ListWorkflowService implements OnModuleInit {
     return parts.map((s) => s.trim()).filter((s) => s.length > 0).slice(0, 20);
   }
 
+  private readonly menuActions: Record<string, (userPhone: string, userId: string, timezone: string) => Promise<void>> = {
+    view_list: this.sendTodayList.bind(this),
+    lists: this.sendListsSlideUpMenu.bind(this),
+    help: this.sendHelp.bind(this),
+  };
+
   private async runMenuAction(
     action: string,
     userPhone: string,
     userId: string,
     timezone: string,
   ): Promise<void> {
-    switch (action) {
-      case 'view_list':
-        await this.sendTodayList(userPhone, userId, timezone);
-        break;
-      case 'lists':
-        await this.sendListsSlideUpMenu(userPhone, userId);
-        break;
-      case 'help':
-        await this.sendHelp(userPhone, userId);
-        break;
+    const handler = this.menuActions[action];
+    if (handler) {
+      await handler(userPhone, userId, timezone);
     }
   }
 
-  private async sendListsSlideUpMenu(userPhone: string, userId: string): Promise<void> {
+  private async sendListsSlideUpMenu(userPhone: string, userId: string, _timezone?: string): Promise<void> {
     const lists = await this.todoListService.getLists(userId);
     if (lists.length === 0) {
       const body =
@@ -422,7 +421,7 @@ export class ListWorkflowService implements OnModuleInit {
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
-  private async sendHelp(userPhone: string, userId: string): Promise<void> {
+  private async sendHelp(userPhone: string, userId: string, _timezone?: string): Promise<void> {
     const body = appendChatTips(
       'Here’s a quick overview. Use *menu* for the slide-up picker, or */create_list* to start the list wizard.',
     );

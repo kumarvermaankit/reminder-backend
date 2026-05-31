@@ -4,12 +4,10 @@ import { WhatsappService } from '../services/whatsapp.service';
 import { AiService } from '../services/ai.service';
 import { UserService } from '../services/user.service';
 import { ReminderService } from '../services/reminder.service';
-import { NoteService } from '../services/note.service';
-import { PasswordService } from '../services/password.service';
 import { UserContextService } from '../services/user-context.service';
 import { TodoListService } from '../services/todo-list.service';
 import { ListWorkflowService } from '../services/list-workflow.service';
-import { WORKFLOWS } from '../constants/workflows';
+import { WhatsappActionHandler } from './whatsapp-action-handler';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 
 @Controller('whatsapp')
@@ -22,11 +20,10 @@ export class WhatsappController {
     private readonly aiService: AiService,
     private readonly userService: UserService,
     private readonly reminderService: ReminderService,
-    private readonly noteService: NoteService,
-    private readonly passwordService: PasswordService,
     private readonly userContextService: UserContextService,
     private readonly todoListService: TodoListService,
     private readonly listWorkflowService: ListWorkflowService,
+    private readonly actionHandler: WhatsappActionHandler,
   ) {}
 
   @Post('webhook')
@@ -361,61 +358,7 @@ export class WhatsappController {
       if (pendingSelection && selectionNum > 0 && selectionNum <= pendingSelection.listIds.length) {
         this.logger.log(`Resolving list selection: ${selectionNum} (${pendingSelection.actionType})`);
         await this.userContextService.clearPendingListSelection(user.id);
-        const selectedId = pendingSelection.listIds[selectionNum - 1];
-        const list = await this.todoListService.getList(selectedId, user.id);
-        let selRes: string;
-        switch (pendingSelection.actionType) {
-          case 'get_todo':
-            selRes = this.todoListService.formatList(list);
-            break;
-          case 'complete_todo_item': {
-            const targets = pendingSelection.itemTargets || [];
-            let doneCount = 0;
-            let listDeleted = false;
-            const pending = list.items.filter(i => !i.isCompleted);
-            for (const target of targets) {
-              const match = pending.find(i =>
-                i.content.toLowerCase().includes(target.toLowerCase())
-              );
-              if (match) {
-                const result = await this.todoListService.completeItem(match.id, user.id);
-                doneCount++;
-                if (result.listDeleted) listDeleted = true;
-              }
-            }
-            selRes = listDeleted
-              ? `✅ All items done in ${list.title}! The list has been cleaned up. 🎉`
-              : doneCount > 0
-                ? `✅ Marked ${doneCount} item(s) as done in ${list.title}!`
-                : `I couldn't find those items in the ${list.title} list.`;
-            break;
-          }
-          case 'edit_todo_item': {
-            const ref = pendingSelection.itemRef || '';
-            const newContent = pendingSelection.newContent || '';
-            const pending = list.items.filter(i => !i.isCompleted);
-            let match: any = null;
-            const lowerRef = ref.toLowerCase();
-            if (/^(first|1st|#1|top)\b/.test(lowerRef)) match = pending[0] || null;
-            else if (/^(second|2nd|#2)\b/.test(lowerRef)) match = pending[1] || null;
-            else if (/^(third|3rd|#3)\b/.test(lowerRef)) match = pending[2] || null;
-            else if (/^last\b/.test(lowerRef)) match = pending[pending.length - 1] || null;
-            else match = pending.find(i => i.content.toLowerCase().includes(lowerRef)) || null;
-            if (match) {
-              await this.todoListService.updateItem(match.id, user.id, newContent);
-              selRes = `✅ Updated "${ref}" to "${newContent}" in ${list.title}!`;
-            } else {
-              selRes = `I couldn't find "${ref}" in the ${list.title} list.`;
-            }
-            break;
-          }
-          default:
-            selRes = this.todoListService.formatList(list);
-        }
-        if (pendingSelection.actionType === 'delete_list') {
-          await this.todoListService.deleteList(selectedId, user.id);
-          selRes = `🗑️ Deleted "${pendingSelection.title}" list!`;
-        }
+        const selRes = await this.handlePendingListSelection(pendingSelection, selectionNum, user.id);
         await this.sendAssistantReply(userPhone, user.id, selRes);
         return;
       }
@@ -458,426 +401,79 @@ export class WhatsappController {
 
       // Dispatch based on action type
       let botResponse: string;
+      let needsPendingSelection = false;
+      let pendingSelectionData: any = null;
 
-      switch (parsed.actionType) {
-        case 'complete_reminder': {
-          if (parsed.reminderId && pendingReminders.some(r => r.id === parsed.reminderId)) {
-            this.logger.log(`AI matched reminder ID ${parsed.reminderId} for completion`);
-            const reminder = pendingReminders.find(r => r.id === parsed.reminderId);
-            await this.reminderService.markAsCompleted(parsed.reminderId);
-            await this.reminderService.deleteReminder(parsed.reminderId);
-            await this.reminderService.deleteAllSchedulesForReminder(parsed.reminderId);
-            botResponse = `✅ Marked "${reminder.title}" as done!`;
-          } else {
-            botResponse = "I'm not sure which reminder you're referring to. Please tell me the name of the reminder you'd like to mark as done.";
-          }
-          break;
+      if (parsed.actionType === 'complete_reminder') {
+        botResponse = await this.actionHandler.handleCompleteReminder(parsed.reminderId, pendingReminders);
+      } else if (parsed.actionType === 'save_note') {
+        botResponse = await this.actionHandler.handleSaveNote(parsed.noteKey, parsed.noteContent, user.id);
+      } else if (parsed.actionType === 'get_note') {
+        botResponse = await this.actionHandler.handleGetNote(parsed.noteKey, user.id);
+      } else if (parsed.actionType === 'save_password') {
+        botResponse = await this.actionHandler.handleSavePassword(parsed.serviceName, parsed.password, user.id);
+      } else if (parsed.actionType === 'create_todo') {
+        botResponse = await this.actionHandler.handleCreateTodo(
+          parsed.todoListTitle, parsed.todoItemContents,
+          { title: parsed.title, reminderDate: parsed.reminderDate, msgTimestamp }, user.id,
+        );
+      } else if (parsed.actionType === 'add_todo_item') {
+        botResponse = await this.actionHandler.handleAddTodoItem(
+          parsed.todoListTitle, parsed.todoItemContents, parsed.todoItemContent, parsed.noteKey,
+          { title: parsed.title, reminderDate: parsed.reminderDate, msgTimestamp }, user.id,
+        );
+      } else if (parsed.actionType === 'get_todo') {
+        const result = await this.actionHandler.handleGetTodo(parsed.todoListTitle, user.id);
+        botResponse = result.response;
+        if (result.pendingSelection) {
+          needsPendingSelection = true;
+          pendingSelectionData = result.pendingSelection;
         }
+      } else if (parsed.actionType === 'complete_todo_item') {
+        const result = await this.actionHandler.handleCompleteTodoItem(
+          parsed.todoListTitle, parsed.todoItemContents, parsed.todoItemContent, parsed.noteKey, user.id,
+        );
+        botResponse = result.response;
+        if (result.pendingSelection) {
+          needsPendingSelection = true;
+          pendingSelectionData = result.pendingSelection;
+        }
+      } else if (parsed.actionType === 'edit_todo_item') {
+        const result = await this.actionHandler.handleEditTodoItem(
+          parsed.todoListTitle, parsed.todoItemContent, parsed.todoItemContents, parsed.noteContent, user.id,
+        );
+        botResponse = result.response;
+        if (result.pendingSelection) {
+          needsPendingSelection = true;
+          pendingSelectionData = result.pendingSelection;
+        }
+      } else if (parsed.actionType === 'delete_list') {
+        const result = await this.actionHandler.handleDeleteList(parsed.todoListTitle, user.id);
+        botResponse = result.response;
+        if (result.pendingSelection) {
+          needsPendingSelection = true;
+          pendingSelectionData = result.pendingSelection;
+        }
+      } else if (parsed.actionType === 'get_password') {
+        botResponse = await this.actionHandler.handleGetPassword(parsed.serviceName, user.id);
+      } else if (parsed.actionType === 'update_settings') {
+        botResponse = await this.actionHandler.handleUpdateSettings(parsed.dailyPromptTime, user);
+      } else if (parsed.actionType === 'system_query') {
+        botResponse = await this.actionHandler.handleSystemQuery(message);
+      } else if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
+        botResponse = await this.actionHandler.handleCreateReminder(parsed, {
+          userPhone, userId: user.id, message, msgTimestamp, userTimezone: user.timezone, userName: user.name,
+        }, msgTimestamp);
+      } else if (parsed.needsClarification && parsed.clarificationQuestion) {
+        botResponse = parsed.clarificationQuestion;
+      } else {
+        botResponse = appendChatTipsDetailed(
+          "I'm not sure I understood that. Say what you need in your own words — see examples below.",
+        );
+      }
 
-        case 'save_note': {
-          if (parsed.noteKey && parsed.noteContent) {
-            try {
-              const note = await this.noteService.createNote(user.id, parsed.noteKey, parsed.noteContent);
-              botResponse = `✅ Saved "${parsed.noteKey}" for you!`;
-            } catch (e) {
-              this.logger.error('Failed to save note:', e);
-              botResponse = 'Sorry, I could not save that note.';
-            }
-          } else {
-            botResponse = "What would you like me to save? Tell me a title and some content.";
-          }
-          break;
-        }
-
-        case 'get_note': {
-          if (parsed.noteKey) {
-            const notes = await this.noteService.searchNotes(user.id, parsed.noteKey);
-            if (notes.length > 0) {
-              botResponse = notes.map(n => `📝 *${n.title}*:\n${n.content}`).join('\n\n');
-            } else {
-              botResponse = `I couldn't find a note matching "${parsed.noteKey}". Try asking with a different title — say "list my notes" to see what you have.`;
-            }
-          } else {
-            const all = await this.noteService.getAllNotesByUser(user.id);
-            if (all.length > 0) {
-              botResponse = `Here are your notes:\n${all.map(n => `• ${n.title}`).join('\n')}\n\nAsk for one by name!`;
-            } else {
-              botResponse = "You don't have any saved notes yet. Save one by saying 'remember that my email is xyz'.";
-            }
-          }
-          break;
-        }
-
-        case 'save_password': {
-          if (parsed.serviceName && parsed.password) {
-            try {
-              const saved = await this.passwordService.savePassword(
-                user.id, parsed.serviceName, '', parsed.password
-              );
-              botResponse = `🔐 Saved password for *${parsed.serviceName}* (${saved.createdAt.toLocaleString()})`;
-            } catch (e) {
-              this.logger.error('Failed to save password:', e);
-              botResponse = 'Sorry, I could not save that password.';
-            }
-          } else {
-            botResponse = "Please tell me the service name and password you'd like to save. For example: 'save my facebook password as abc123'";
-          }
-          break;
-        }
-
-        case 'create_todo': {
-          if (parsed.todoListTitle) {
-            try {
-              const list = await this.todoListService.createList(user.id, parsed.todoListTitle);
-              const items = parsed.todoItemContents || [];
-              if (items.length > 0) {
-                for (const item of items) {
-                  const saved = await this.todoListService.addItem(list.id, user.id, item, parsed.reminderDate);
-                  if (parsed.reminderDate) {
-                    await this.reminderService.createReminder({
-                      userId: user.id,
-                      title: parsed.title || item,
-                      description: `In ${parsed.todoListTitle} list`,
-                      reminderDate: parsed.reminderDate,
-                      todoItemId: saved.id,
-                      msgTimestamp,
-                    });
-                  }
-                }
-                const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about it.` : '';
-                botResponse = `📋 Created "${parsed.todoListTitle}" with ${items.length} items!${reminderNote}`;
-              } else {
-                botResponse =
-                  `📋 Created a new list "${parsed.todoListTitle}"! ` +
-                  `Add items by saying "add ... to ${parsed.todoListTitle}".`;
-              }
-            } catch (e) {
-              this.logger.error('Failed to create todo list:', e);
-              botResponse = 'Sorry, I could not create that list.';
-            }
-          } else {
-            botResponse = "What would you like to call your new list?";
-          }
-          break;
-        }
-
-        case 'add_todo_item': {
-          const listTitle = parsed.todoListTitle || 'general';
-          const items = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : parsed.noteKey ? [parsed.noteKey] : []);
-          if (items.length > 0) {
-            try {
-              let list = await this.todoListService.findListByTitle(user.id, listTitle);
-              if (!list) {
-                list = await this.todoListService.createList(user.id, listTitle);
-              }
-              for (const item of items) {
-                const saved = await this.todoListService.addItem(list.id, user.id, item, parsed.reminderDate);
-                if (parsed.reminderDate) {
-                  await this.reminderService.createReminder({
-                    userId: user.id,
-                    title: parsed.title || item,
-                    description: `In ${listTitle} list`,
-                    reminderDate: parsed.reminderDate,
-                    todoItemId: saved.id,
-                    msgTimestamp,
-                  });
-                }
-              }
-              const label = items.length === 1 ? items[0] : `${items.length} items`;
-              const reminderNote = parsed.reminderDate ? ` 🔔 I'll remind you about ${items.length === 1 ? 'it' : 'them'}.` : '';
-              botResponse = `✅ Added "${label}" to ${listTitle} list!${reminderNote}`;
-            } catch (e) {
-              this.logger.error('Failed to add todo item:', e);
-              botResponse = 'Sorry, I could not add that item.';
-            }
-          } else {
-            botResponse = "What would you like to add to the list?";
-          }
-          break;
-        }
-
-        case 'get_todo': {
-          if (parsed.todoListTitle) {
-            try {
-              const lists = await this.todoListService.findListsByTitle(user.id, parsed.todoListTitle);
-              if (lists.length > 0) {
-                if (lists.length === 1) {
-                  botResponse = this.todoListService.formatList(lists[0]);
-                } else {
-                  await this.userContextService.setPendingListSelection(user.id, {
-                    title: parsed.todoListTitle,
-                    listIds: lists.map(l => l.id),
-                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
-                    actionType: 'get_todo',
-                  });
-                  botResponse = `I found ${lists.length} lists called "${parsed.todoListTitle}":\n\n${lists.map((l, i) =>
-                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
-                  ).join('\n')}\n\nReply with the number to pick one.`;
-                }
-              } else {
-                botResponse = `I don't have a list called "${parsed.todoListTitle}".`;
-              }
-            } catch (e) {
-              this.logger.error('Failed to get todo list:', e);
-              botResponse = 'Sorry, I could not retrieve that list.';
-            }
-          } else {
-            const lists = await this.todoListService.getLists(user.id);
-            if (lists.length > 0) {
-              botResponse = `Here are your lists:\n${lists.map(l => `• ${l.title}`).join('\n')}\n\nAsk to see one by name!`;
-            } else {
-              botResponse = "You don't have any lists yet. Create one by saying something like 'start a shopping list'.";
-            }
-          }
-          break;
-        }
-
-        case 'complete_todo_item': {
-          const listTitle = parsed.todoListTitle || 'general';
-          const items = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : parsed.noteKey ? [parsed.noteKey] : []);
-          if (items.length > 0) {
-            try {
-              const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
-              if (lists.length > 0) {
-                if (lists.length === 1) {
-                  let doneCount = 0;
-                  let listDeleted = false;
-                  const allItems = await this.todoListService.getItems(lists[0].id, user.id);
-                  const pending = allItems.filter(i => !i.isCompleted);
-                  for (const target of items) {
-                    const lowerRef = target.toLowerCase();
-                    let match: any = null;
-                    if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-                      match = pending[0] || null;
-                    } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-                      match = pending[1] || null;
-                    } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-                      match = pending[2] || null;
-                    } else if (/^last\b/.test(lowerRef)) {
-                      match = pending[pending.length - 1] || null;
-                    } else {
-                      match = pending.find(i =>
-                        i.content.toLowerCase().includes(lowerRef)
-                      );
-                    }
-                    if (match) {
-                      const result = await this.todoListService.completeItem(match.id, user.id);
-                      doneCount++;
-                      if (result.listDeleted) listDeleted = true;
-                    }
-                  }
-                  if (listDeleted) {
-                    botResponse = `✅ All items done in ${listTitle}! The list has been cleaned up. 🎉`;
-                  } else if (doneCount > 0) {
-                    botResponse = `✅ Marked ${doneCount} item(s) as done in ${listTitle}!`;
-                  } else {
-                    botResponse = `I couldn't find those items in the ${listTitle} list.`;
-                  }
-                } else {
-                  await this.userContextService.setPendingListSelection(user.id, {
-                    title: listTitle,
-                    listIds: lists.map(l => l.id),
-                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
-                    actionType: 'complete_todo_item',
-                    itemTargets: items,
-                  });
-                  botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
-                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
-                  ).join('\n')}\n\nWhich list has the items you want to mark done? Reply with the number.`;
-                }
-              } else {
-                botResponse = `I don't have a list called "${listTitle}".`;
-              }
-            } catch (e) {
-              this.logger.error('Failed to complete todo item:', e);
-              botResponse = 'Sorry, I could not mark that item as done.';
-            }
-          } else {
-            botResponse = "Which item would you like to mark as done?";
-          }
-          break;
-        }
-
-        case 'edit_todo_item': {
-          const listTitle = parsed.todoListTitle || 'general';
-          const targetRef = parsed.todoItemContent || (parsed.todoItemContents ? parsed.todoItemContents[0] : '');
-          const newContent = parsed.noteContent;
-          if (targetRef && newContent) {
-            try {
-              const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
-              if (lists.length > 0) {
-                if (lists.length === 1) {
-                  const allItems = await this.todoListService.getItems(lists[0].id, user.id);
-                  const pending = allItems.filter(i => !i.isCompleted);
-                  let match: any = null;
-                  const lowerRef = targetRef.toLowerCase();
-                  if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-                    match = pending[0] || null;
-                  } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-                    match = pending[1] || null;
-                  } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-                    match = pending[2] || null;
-                  } else if (/^last\b/.test(lowerRef)) {
-                    match = pending[pending.length - 1] || null;
-                  } else {
-                    match = pending.find(i =>
-                      i.content.toLowerCase().includes(lowerRef)
-                    ) || allItems.find(i =>
-                      i.content.toLowerCase().includes(lowerRef)
-                    );
-                  }
-                  if (match) {
-                    await this.todoListService.updateItem(match.id, user.id, newContent);
-                    botResponse = `✅ Updated "${targetRef}" to "${newContent}" in ${lists[0].title}!`;
-                  } else {
-                    botResponse = `I couldn't find "${targetRef}" in the ${listTitle} list.`;
-                  }
-                } else {
-                  await this.userContextService.setPendingListSelection(user.id, {
-                    title: listTitle,
-                    listIds: lists.map(l => l.id),
-                    listDates: lists.map(l => l.createdAt.toLocaleDateString()),
-                    actionType: 'edit_todo_item',
-                    itemRef: targetRef,
-                    newContent,
-                  });
-                  botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
-                    `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
-                  ).join('\n')}\n\nWhich list has the item you want to edit? Reply with the number.`;
-                }
-              } else {
-                botResponse = `I don't have a list called "${listTitle}".`;
-              }
-            } catch (e) {
-              this.logger.error('Failed to edit todo item:', e);
-              botResponse = 'Sorry, I could not edit that item.';
-            }
-          } else {
-            botResponse = "Please tell me which item to edit and what to change it to. For example: 'edit first item as buy milk'.";
-          }
-          break;
-        }
-
-        case 'delete_list': {
-          const listTitle = parsed.todoListTitle || 'general';
-          try {
-            const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
-            if (lists.length > 0) {
-              if (lists.length === 1) {
-                await this.todoListService.deleteList(lists[0].id, user.id);
-                botResponse = `🗑️ Deleted "${listTitle}" list!`;
-              } else {
-                await this.userContextService.setPendingListSelection(user.id, {
-                  title: listTitle,
-                  listIds: lists.map(l => l.id),
-                  listDates: lists.map(l => l.createdAt.toLocaleDateString()),
-                  actionType: 'delete_list',
-                });
-                botResponse = `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
-                  `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
-                ).join('\n')}\n\nWhich one do you want to delete? Reply with the number.`;
-              }
-            } else {
-              botResponse = `I don't have a list called "${listTitle}".`;
-            }
-          } catch (e) {
-            this.logger.error('Failed to delete list:', e);
-            botResponse = 'Sorry, I could not delete that list.';
-          }
-          break;
-        }
-
-        case 'get_password': {
-          if (parsed.serviceName) {
-            const entries = await this.passwordService.getPasswordsByService(user.id, parsed.serviceName);
-            if (entries.length > 0) {
-              botResponse = entries.map((e, i) =>
-                `*${i + 1}. ${e.service}* — saved ${e.createdAt.toLocaleString()}\nPassword: \`${e.encryptedPassword}\``
-              ).join('\n\n');
-              botResponse = `🔑 Passwords for *${parsed.serviceName}*:\n\n${botResponse}`;
-            } else {
-              botResponse = `I don't have any passwords saved for "${parsed.serviceName}".`;
-            }
-          } else {
-            botResponse = "Which service's password would you like to retrieve?";
-          }
-          break;
-        }
-
-        case 'update_settings': {
-          if (parsed.dailyPromptTime) {
-            const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
-            if (timePattern.test(parsed.dailyPromptTime)) {
-              await this.userService.updateUser(user.id, { dailyPromptTime: parsed.dailyPromptTime });
-              botResponse = `✅ Your daily prompt time has been set to ${parsed.dailyPromptTime}. I'll check in with you each day then!`;
-            } else {
-              botResponse = `I couldn't understand that time. Please use HH:mm format, like 09:00 or 14:30.`;
-            }
-          } else {
-            botResponse = `Your daily prompt is currently set to ${user.dailyPromptTime || '09:00'}. Say "set daily prompt to 8am" to change it.`;
-          }
-          break;
-        }
-
-        case 'system_query': {
-          const workflowsResponse = await this.aiService.generateBasicResponse(
-            `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,
-            undefined,
-          );
-          botResponse = workflowsResponse;
-          break;
-        }
-
-        default: {
-          // create_reminder or unknown
-          if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
-            this.logger.log(`Creating reminder...`);
-            try {
-              // If no start date but recurring, first reminder fires after one interval
-              const nowRef = msgTimestamp || new Date();
-              const reminderDate = parsed.reminderDate && !isNaN(new Date(parsed.reminderDate).getTime())
-                ? new Date(parsed.reminderDate)
-                : parsed.intervalMinutes
-                  ? new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000)
-                  : new Date(nowRef.getTime() + 10 * 60 * 1000);
-              const diffMs = reminderDate.getTime() - nowRef.getTime();
-              this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
-              const created = await this.reminderService.createReminder({
-                userId: user.id,
-                title: parsed.title,
-                description: parsed.description || parsed.title || '',
-                reminderDate,
-                msgTimestamp,
-                isCompleted: false,
-                isPersistent: !!parsed.intervalMinutes,
-                reminderInterval: parsed.intervalMinutes || 0,
-                maxReminderCount: parsed.maxReminderCount || 0,
-                reminderCount: 0,
-                metadata: {
-                  category: parsed.category,
-                  priority: parsed.priority,
-                  recurring: parsed.recurring,
-                  source: 'whatsapp'
-                }
-              });
-              const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
-              const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
-              const repeatInfo = parsed.intervalMinutes
-                ? ` (repeats every ${parsed.intervalMinutes} min)`
-                : '';
-              botResponse = `✅ Reminder set! I'll remind you to "${created.title}" ${timeStr}${repeatInfo}.`;
-            } catch (e) {
-              this.logger.error('Failed to save reminder:', e);
-              botResponse = "I understood your reminder but had trouble saving it. Please try again!";
-            }
-          } else if (parsed.needsClarification && parsed.clarificationQuestion) {
-            botResponse = parsed.clarificationQuestion;
-          } else {
-            botResponse = appendChatTipsDetailed(
-              "I'm not sure I understood that. Say what you need in your own words — see examples below.",
-            );
-          }
-        }
+      if (needsPendingSelection && pendingSelectionData) {
+        await this.userContextService.setPendingListSelection(user.id, pendingSelectionData);
       }
 
       const withCompactTips =
@@ -986,67 +582,53 @@ export class WhatsappController {
     }
   }
 
-  private lookupTimezone(input: string): string | null {
-    const aliases: Record<string, string> = {
-      'ist': 'Asia/Kolkata',
-      'pst': 'America/Los_Angeles',
-      'pdt': 'America/Los_Angeles',
-      'cst': 'America/Chicago',
-      'cdt': 'America/Chicago',
-      'est': 'America/New_York',
-      'edt': 'America/New_York',
-      'gmt': 'GMT',
-      'utc': 'UTC',
-      'aest': 'Australia/Sydney',
-      'aedt': 'Australia/Sydney',
-      'cet': 'Europe/Paris',
-      'bst': 'Europe/London',
-    };
-    const key = input.toLowerCase().trim();
-    if (aliases[key]) return aliases[key];
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: input });
-      return input;
-    } catch {
-      return null;
-    }
-  }
+  private async handlePendingListSelection(pendingSelection: any, selectionNum: number, userId: string): Promise<string> {
+    const selectedId = pendingSelection.listIds[selectionNum - 1];
+    const list = await this.todoListService.getList(selectedId, userId);
 
-  private guessTimezoneFromLocation(location: string): string | null {
-    const cityMap: Record<string, string> = {
-      'mumbai': 'Asia/Kolkata',
-      'delhi': 'Asia/Kolkata',
-      'new delhi': 'Asia/Kolkata',
-      'bangalore': 'Asia/Kolkata',
-      'bengaluru': 'Asia/Kolkata',
-      'chennai': 'Asia/Kolkata',
-      'hyderabad': 'Asia/Kolkata',
-      'kolkata': 'Asia/Kolkata',
-      'pune': 'Asia/Kolkata',
-      'ahmedabad': 'Asia/Kolkata',
-      'jaipur': 'Asia/Kolkata',
-      'london': 'Europe/London',
-      'manchester': 'Europe/London',
-      'new york': 'America/New_York',
-      'nyc': 'America/New_York',
-      'los angeles': 'America/Los_Angeles',
-      'la': 'America/Los_Angeles',
-      'san francisco': 'America/Los_Angeles',
-      'chicago': 'America/Chicago',
-      'dubai': 'Asia/Dubai',
-      'singapore': 'Asia/Singapore',
-      'sydney': 'Australia/Sydney',
-      'melbourne': 'Australia/Sydney',
-      'toronto': 'America/Toronto',
-      'paris': 'Europe/Paris',
-      'berlin': 'Europe/Berlin',
-      'tokyo': 'Asia/Tokyo',
-      'seoul': 'Asia/Seoul',
-      'shanghai': 'Asia/Shanghai',
-      'beijing': 'Asia/Shanghai',
-    };
-    const loc = location.toLowerCase().trim();
-    return cityMap[loc] || null;
+    if (pendingSelection.actionType === 'delete_list') {
+      await this.todoListService.deleteList(selectedId, userId);
+      return `🗑️ Deleted "${pendingSelection.title}" list!`;
+    }
+    if (pendingSelection.actionType === 'complete_todo_item') {
+      const targets = pendingSelection.itemTargets || [];
+      let doneCount = 0;
+      let listDeleted = false;
+      const pending = list.items.filter(i => !i.isCompleted);
+      for (const target of targets) {
+        const match = pending.find(i =>
+          i.content.toLowerCase().includes(target.toLowerCase())
+        );
+        if (match) {
+          const result = await this.todoListService.completeItem(match.id, userId);
+          doneCount++;
+          if (result.listDeleted) listDeleted = true;
+        }
+      }
+      return listDeleted
+        ? `✅ All items done in ${list.title}! The list has been cleaned up. 🎉`
+        : doneCount > 0
+          ? `✅ Marked ${doneCount} item(s) as done in ${list.title}!`
+          : `I couldn't find those items in the ${list.title} list.`;
+    }
+    if (pendingSelection.actionType === 'edit_todo_item') {
+      const ref = pendingSelection.itemRef || '';
+      const newContent = pendingSelection.newContent || '';
+      const pending = list.items.filter(i => !i.isCompleted);
+      let match: any = null;
+      const lowerRef = ref.toLowerCase();
+      if (/^(first|1st|#1|top)\b/.test(lowerRef)) match = pending[0] || null;
+      else if (/^(second|2nd|#2)\b/.test(lowerRef)) match = pending[1] || null;
+      else if (/^(third|3rd|#3)\b/.test(lowerRef)) match = pending[2] || null;
+      else if (/^last\b/.test(lowerRef)) match = pending[pending.length - 1] || null;
+      else match = pending.find(i => i.content.toLowerCase().includes(lowerRef)) || null;
+      if (match) {
+        await this.todoListService.updateItem(match.id, userId, newContent);
+        return `✅ Updated "${ref}" to "${newContent}" in ${list.title}!`;
+      }
+      return `I couldn't find "${ref}" in the ${list.title} list.`;
+    }
+    return this.todoListService.formatList(list);
   }
 
   /** Send text to user; appends example tips by default. */
@@ -1059,94 +641,5 @@ export class WhatsappController {
     const body = withTips ? appendChatTips(text) : text;
     await this.whatsappService.sendMessage(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
-  }
-
-  private static readonly DISPLAY_TIMEZONES = [
-    'Asia/Kolkata', 'Asia/Kathmandu', 'Asia/Dhaka', 'Asia/Karachi', 'Asia/Dubai',
-    'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul',
-    'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'America/New_York',
-    'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-    'Australia/Sydney', 'Pacific/Auckland', 'UTC',
-  ];
-
-  private localDateKey(d: Date, timeZone: string): string {
-    return d.toLocaleDateString('en-CA', { timeZone });
-  }
-
-  private calendarDayDiff(fromKey: string, toKey: string): number {
-    const from = new Date(`${fromKey}T12:00:00Z`);
-    const to = new Date(`${toKey}T12:00:00Z`);
-    return Math.round((to.getTime() - from.getTime()) / 86400000);
-  }
-
-  /** When profile timezone is UTC, pick IANA zone that best matches msg vs reminder calendar. */
-  private resolveDisplayTimezone(
-    userTimezone: string,
-    msgRef: Date,
-    targetDate: Date,
-  ): string {
-    if (userTimezone && userTimezone !== 'UTC') return userTimezone;
-
-    let bestTz = 'UTC';
-    let bestScore = -1;
-
-    for (const timeZone of WhatsappController.DISPLAY_TIMEZONES) {
-      if (timeZone === 'UTC') continue;
-      const dayDiff = this.calendarDayDiff(
-        this.localDateKey(msgRef, timeZone),
-        this.localDateKey(targetDate, timeZone),
-      );
-      if (dayDiff < 0 || dayDiff > 14) continue;
-
-      let score = dayDiff === 1 ? 20 : dayDiff === 0 ? 12 : dayDiff <= 7 ? 4 : 0;
-      const localHour = Number(
-        targetDate.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
-      );
-      if (localHour >= 7 && localHour <= 22) score += 5;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestTz = timeZone;
-      }
-    }
-    return bestTz;
-  }
-
-  private formatRelativeTime(date: Date, timezone: string = 'UTC', nowRef?: Date): string {
-    const now = nowRef || new Date();
-    const diffMs = date.getTime() - now.getTime();
-    const diffMin = Math.round(diffMs / 60000);
-
-    const timeStr = date.toLocaleTimeString('en-US', {
-      timeZone: timezone,
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-    const dayDiff = this.calendarDayDiff(
-      this.localDateKey(now, timezone),
-      this.localDateKey(date, timezone),
-    );
-
-    if (dayDiff === 0) {
-      if (diffMin < 1) return 'in less than a minute';
-      if (diffMin < 60) return `in ${diffMin} minutes`;
-      return `today at ${timeStr}`;
-    }
-    if (dayDiff === 1) return `tomorrow at ${timeStr}`;
-    if (dayDiff > 1 && dayDiff <= 7) {
-      const weekday = date.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long' });
-      return `on ${weekday} at ${timeStr}`;
-    }
-    return date.toLocaleDateString('en-US', {
-      timeZone: timezone,
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
   }
 }

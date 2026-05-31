@@ -5,15 +5,25 @@ import { TodoListService } from './todo-list.service';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { User } from '../entities/user.entity';
 
+type SendNotificationFn = (user: User, message: string, schedule: ReminderSchedule) => Promise<boolean>;
+
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+
+  private readonly notificationStrategies: Map<string, SendNotificationFn>;
 
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly userService: UserService,
     private readonly todoListService: TodoListService,
-  ) {}
+  ) {
+    this.notificationStrategies = new Map([
+      ['whatsapp', this.sendViaWhatsapp.bind(this)],
+      ['email', this.sendViaEmail.bind(this)],
+      ['sms', this.sendViaSms.bind(this)],
+    ]);
+  }
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
     try {
@@ -40,31 +50,8 @@ export class NotificationService {
 
       const message = this.formatReminderMessage(reminder.title, reminder.description, user.name, reminder.reminderCount);
 
-      // Send based on user's preferred contact method
-      let sent = false;
-      switch (user.preferredContactMethod) {
-        case 'whatsapp':
-          if (user.phone) {
-            const buttons = reminder.isPersistent
-              ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
-              : [
-                  { id: `done:${schedule.id}`, title: 'Done ✅' },
-                  { id: `snooze_5:${schedule.id}`, title: 'Snooze 5 min' },
-                  { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
-                ];
-            await this.whatsappService.sendInteractiveMessage(user.phone, message, buttons);
-            sent = true;
-          }
-          break;
-        case 'email':
-          // TODO: Implement email service
-          this.logger.warn(`Email service not implemented for user ${user.id}`);
-          break;
-        case 'sms':
-          // TODO: Implement SMS service
-          this.logger.warn(`SMS service not implemented for user ${user.id}`);
-          break;
-      }
+      const strategy = this.notificationStrategies.get(user.preferredContactMethod);
+      const sent = strategy ? await strategy(user, message, schedule) : false;
 
       if (sent) {
         this.logger.log(`Successfully sent reminder ${schedule.id} to user ${user.id} via ${user.preferredContactMethod}`);
@@ -110,6 +97,29 @@ private formatReminderMessage(title: string, description: string, userName: stri
     }
     
     return message;
+  }
+
+  private async sendViaWhatsapp(user: User, message: string, schedule: ReminderSchedule): Promise<boolean> {
+    if (!user.phone) return false;
+    const buttons = schedule.reminder.isPersistent
+      ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
+      : [
+          { id: `done:${schedule.id}`, title: 'Done ✅' },
+          { id: `snooze_5:${schedule.id}`, title: 'Snooze 5 min' },
+          { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
+        ];
+    await this.whatsappService.sendInteractiveMessage(user.phone, message, buttons);
+    return true;
+  }
+
+  private async sendViaEmail(user: User, message: string, schedule: ReminderSchedule): Promise<boolean> {
+    this.logger.warn(`Email service not implemented for user ${user.id}`);
+    return false;
+  }
+
+  private async sendViaSms(user: User, message: string, schedule: ReminderSchedule): Promise<boolean> {
+    this.logger.warn(`SMS service not implemented for user ${user.id}`);
+    return false;
   }
 
   async sendDailyPrompt(user: User): Promise<boolean> {

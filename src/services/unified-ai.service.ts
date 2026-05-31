@@ -14,13 +14,23 @@ interface AIProvider {
   model: string;
 }
 
+type AiCallFn = (provider: any, prompt: string, systemPrompt: string, useJson: boolean) => Promise<string>;
+
 @Injectable()
 export class UnifiedAiService {
   private readonly logger = new Logger(UnifiedAiService.name);
   private providers: AIProvider[] = [];
   private usageCache = new Map<string, any>();
 
+  private readonly aiCallStrategies: Map<string, AiCallFn>;
+
   constructor() {
+    this.aiCallStrategies = new Map([
+      ['groq', this.callGroq.bind(this)],
+      ['together', this.callTogether.bind(this)],
+      ['replicate', this.callReplicate.bind(this)],
+      ['openai', this.callOpenAI.bind(this)],
+    ]);
     this.initializeProviders();
     this.loadUsageFromCache();
   }
@@ -213,28 +223,11 @@ Look for phrases like:
   // Unified AI Call Method - Same interface for all providers
   private async callAI(provider: AIProvider, prompt: string, systemPrompt: string, useJson: boolean = false): Promise<string> {
     try {
-      let response;
-      
-      switch (provider.name) {
-        case 'groq':
-          response = await this.callGroq(provider, prompt, systemPrompt, useJson);
-          break;
-        case 'together':
-          response = await this.callTogether(provider, prompt, systemPrompt, useJson);
-          break;
-        case 'replicate':
-          response = await this.callReplicate(provider, prompt, systemPrompt, useJson);
-          break;
-        case 'openai':
-          response = await this.callOpenAI(provider, prompt, systemPrompt, useJson);
-          break;
-        default:
-          throw new Error(`Unknown provider: ${provider.name}`);
-      }
-
+      const strategy = this.aiCallStrategies.get(provider.name);
+      if (!strategy) throw new Error(`Unknown provider: ${provider.name}`);
+      const response = await strategy(provider, prompt, systemPrompt, useJson);
       await this.trackUsage(provider);
       return response;
-      
     } catch (error) {
       this.logger.error(`Failed to call ${provider.name}:`, error);
       throw error;

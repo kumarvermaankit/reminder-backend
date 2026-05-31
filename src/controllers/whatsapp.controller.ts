@@ -419,6 +419,25 @@ export class WhatsappController {
       );
       this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, reminderDate=${parsed.reminderDate || 'null'}`);
 
+      // ── Deterministic time extraction ──────────────────────────────────────
+      // Extract wall-clock time from AI's localTime or fall back to regex on raw message,
+      // convert to UTC using the user's known timezone (or default IST), then override.
+      if (parsed.actionType === 'create_reminder') {
+        const timeStr = this.extractWallClockTime(parsed.localTime, message);
+        if (timeStr) {
+          const tz = user.timezone && user.timezone !== 'UTC' ? user.timezone : 'Asia/Kolkata';
+          const utcDate = this.localTimeToUtc(timeStr, tz, msgTimestamp);
+          if (utcDate) {
+            // If user said "tomorrow" and target is on the same UTC day as msg, advance
+            if (/\btomorrow\b/i.test(message) && this.isSameUtcDay(utcDate, msgTimestamp)) {
+              utcDate.setDate(utcDate.getDate() + 1);
+            }
+            parsed.reminderDate = utcDate;
+            this.logger.log(`Time override: "${timeStr}" ${tz} → ${utcDate.toISOString()}`);
+          }
+        }
+      }
+
       // Save user's name if AI extracted one
       if (parsed.userName && (user.name === 'there' || user.name.startsWith('WhatsApp User'))) {
         this.logger.log(`Updating user name to "${parsed.userName}"`);
@@ -1178,6 +1197,63 @@ export class WhatsappController {
     const from = new Date(`${fromKey}T12:00:00Z`);
     const to = new Date(`${toKey}T12:00:00Z`);
     return Math.round((to.getTime() - from.getTime()) / 86400000);
+  }
+
+  /** Extract a wall-clock time string from AI localTime or raw message. Returns "7am", "5:15 PM", etc. */
+  private extractWallClockTime(localTime: string | null, message: string): string | null {
+    const raw = localTime || message;
+    const patterns = [
+      /\b(\d{1,2}):(\d{2})\s*(am|pm)\b/i,
+      /\b(\d{1,2})\s*(am|pm)\b/i,
+    ];
+    for (const pat of patterns) {
+      const m = raw.match(pat);
+      if (m) return m[0].trim().toLowerCase();
+    }
+    return null;
+  }
+
+  /** Convert a local time string to UTC Date using the given IANA timezone. */
+  private localTimeToUtc(timeStr: string, timezone: string, msgTimestamp?: Date): Date | null {
+    const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+    if (!match) return null;
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2] || '0', 10);
+    const mer = match[3];
+    if (mer) {
+      if (mer === 'pm' && h !== 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
+    }
+    if (h > 23 || m > 59) return null;
+
+    const offsetMin = this.getTzOffsetMinutes(timezone, msgTimestamp || new Date());
+    const localMin = h * 60 + m;
+    const utcMin = (localMin - offsetMin + 1440) % 1440;
+    const ref = msgTimestamp || new Date();
+    const dayMs = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0, 0);
+    const utcDate = new Date(dayMs + utcMin * 60000);
+    if (utcDate <= ref) {
+      utcDate.setDate(utcDate.getDate() + 1);
+    }
+    return utcDate;
+  }
+
+  /** Get UTC offset minutes for an IANA timezone on a given date. */
+  private getTzOffsetMinutes(timezone: string, date: Date): number {
+    try {
+      const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
+      const tzStr = date.toLocaleString('en-US', { timeZone: timezone });
+      return Math.round((new Date(tzStr).getTime() - new Date(utcStr).getTime()) / 60000);
+    } catch {
+      return 0;
+    }
+  }
+
+  /** True if both dates fall on the same UTC calendar day. */
+  private isSameUtcDay(a: Date, b: Date): boolean {
+    return a.getUTCFullYear() === b.getUTCFullYear()
+      && a.getUTCMonth() === b.getUTCMonth()
+      && a.getUTCDate() === b.getUTCDate();
   }
 
   /** When profile timezone is UTC, pick IANA zone that best matches msg vs reminder calendar. */

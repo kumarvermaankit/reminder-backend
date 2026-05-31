@@ -393,67 +393,11 @@ export class SimpleAiService {
   private async parseWithGroq(provider: AIProvider, userInput: string, msgTimestamp?: Date): Promise<ParsedReminder> {
     const timeContext = this.buildReminderTimeContext(msgTimestamp);
 
-    const prompt = `Parse this user message: "${userInput}"
-
-${timeContext}
-
-First, determine the actionType:
-- "create_reminder" = user wants a new reminder for something
-- "complete_reminder" = user wants to mark a reminder as done/finished/completed (check conversation history and pending reminders list to find which one)
-- "save_note" = user wants to save information/reference data ("remember my email is xyz", "save that my address is 123 street")
-- "get_note" = user wants to retrieve saved info
-- "save_password" = user wants to save a password
-- "get_password" = user wants a saved password
-- "create_todo" = user wants to create a new todo/list ("start a shopping list", "create a grocery list", "make a todo list for work"). If the user provides items (numbered, bulleted, or comma-separated), set them in todoItemContents.
-- "add_todo_item" = user wants to add items to a list ("add milk to shopping list", "add buy eggs to groceries"). If multiple items are given (comma-separated, "and" separated, or sequential), put them all in todoItemContents.
-- "get_todo" = user wants to see a list ("show my shopping list", "what's on my todo list")
-- "complete_todo_item" = user wants to mark a todo item as done ("done with milk", "check off eggs from shopping list", "mark first item as done", "mark last item as done", "mark second item as done")
-- "edit_todo_item" = user wants to change the text of a todo item ("edit first list item as ...", "change milk to almond milk in shopping list", "update the eggs item to organic eggs")
-- "delete_list" = user wants to delete/remove a todo list entirely ("delete my shopping list", "remove the grocery list", "trash the todo list")
-- "system_query" = user is asking about the system's capabilities ("what can you do?", "how to set a reminder", "how to save a password", "can you save passwords", "is my password protected", "how do todo lists work") or simple greetings ("hi", "hello", "hey", "good morning")
-- "update_settings" = user wants to change their preferences like daily prompt time ("set my daily prompt to 8am", "change daily reminder time to 10am", "make daily list at 9am"). Set dailyPromptTime to the requested time in HH:mm format.
-- "unknown" = casual chat not related to any action and not a system query
-
-Use the conversation history and pending reminders above to understand context. For "complete_reminder", the reminder ID MUST be a real ID from the pending reminders list — never invent one.
-
-CRITICAL for title: Use the EXACT words from the user for the title. Do NOT transform, capitalize, or rephrase. Examples:
-- "drink water" → title: "drink water" (NOT "Drinking Water" or "Drink Water")
-- "call mom" → title: "call mom" (NOT "Call Mom")
-
-CRITICAL for noteKey: Use the EXACT words from the user's message. Do NOT transform, normalize, or change the words. Examples:
-- User says "square root decomposition" → noteKey = "square root decomposition" (NOT "square_root_decomposition")
-- User says "my email" → noteKey = "my email"
-- User says "sqrt decomposition" → noteKey = "sqrt decomposition"
-
-Return JSON with:
-{
-  "actionType": "create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|delete_list|system_query|update_settings|unknown",
-  "reminderId": "REAL ID from pending reminders list (complete_reminder only, NEVER invent)",
-  "title": "EXACT user words — no transformations (for create_reminder)",
-  "description": "full description (for create_reminder)",
-  "reminderDate": "ISO datetime in UTC WITH Z suffix. Convert local wall-clock to UTC (never copy local hours into Z). Example: message 2026-05-30T09:44:00Z, user wants 15:15 local (+05:30) → '2026-05-30T09:45:00Z' NOT '2026-05-30T15:15:00Z'. Relative: add to message UTC. Interval-only: message UTC + intervalMinutes.",
-  "priority": "low|medium|high",
-  "category": "work|personal|health|finance|other",
-  "intervalMinutes": "CRITICAL: extract repeat interval in minutes ONLY if user mentions 'every X minutes/hours' or 'every X min'",
-  "maxReminderCount": "if user says 'for next X hours/minutes/times', calculate how many reminders that would be (intervalMinutes * count = duration). Example: every 5 min for 1 hour → maxReminderCount = 12. Leave 0 for unlimited.",
-  "confidence": 0.0-1.0,
-  "needsClarification": true/false,
-  "clarificationQuestion": "if needed",
-  "noteKey": "title/keyword for the note (save_note/get_note only). For get_note: use exact words from user message.",
-  "noteContent": "the content to save (save_note only) OR the new text for a todo item (edit_todo_item only)",
-  "serviceName": "service name (save_password/get_password only, e.g. 'facebook', 'gmail')",
-  "password": "the password to save (save_password only, NEVER include this for get_password)",
-  "todoListTitle": "title of the todo list (create_todo/get_todo/add_todo_item/complete_todo_item only). If the user doesn't specify a list name, use 'general'.",
-  "todoItemContent": "a single item to add (add_todo_item only, use this when there's ONE item)",
-  "todoItemContents": "an array of items when the user gives MULTIPLE items (add_todo_item/create_todo only, e.g. ['walk', 'need to work on merger task', 'need to review PR'])",
-  "dailyPromptTime": "HH:mm format (update_settings only, e.g. '09:00'). Set when user requests to change their daily prompt time."
-}
-
-Rules:
-- Do NOT ask for clarification about start time if intervalMinutes is set. The first reminder fires after one interval.
-- morning=9am, afternoon=2pm, evening=6pm, night=8pm;
-- Use EXACT user words for title — no transformations
-- CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor all times to user message UTC above; never use a timezone name from profile.`;
+    const prompt = `Parse: "${userInput}"
+    ${timeContext}
+    Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, unknown.
+    Return JSON with actionType, reminderId, title, description, reminderDate (UTC ISO with Z suffix), priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount
+    CRITICAL: reminderDate MUST be UTC with Z suffix. Anchor to user message UTC above; do not use profile timezone.`;
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,

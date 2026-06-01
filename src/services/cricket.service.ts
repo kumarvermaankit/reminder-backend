@@ -43,10 +43,10 @@ export class CricketService {
     while ((m = pushRe.exec(html)) !== null) {
       const raw = m[1];
       if (!raw.includes('seriesMatches')) continue;
-      // Extract the JSON after "matches":[
-      const start = raw.indexOf('\"matches\":[');
+      // Extract the JSON after \"matches\":[
+      const start = raw.indexOf('\\"matches\\":[');
       if (start < 0) continue;
-      let after = raw.substring(start + 11);
+      let after = raw.substring(start + 12);
       // Find matching close bracket — track nesting
       let depth = 0;
       let end = 0;

@@ -54,6 +54,25 @@ export class TodoListService {
     return lists.length > 0 ? lists[0] : null;
   }
 
+  async findItemsByContent(userId: string, query: string): Promise<TodoItem[]> {
+    const lower = query.toLowerCase();
+    return this.itemRepo
+      .createQueryBuilder('item')
+      .leftJoinAndSelect('item.list', 'list')
+      .where('list.userId = :userId', { userId })
+      .andWhere('item.isCompleted = :isCompleted', { isCompleted: false })
+      .andWhere('LOWER(item.content) LIKE :query', { query: `%${lower}%` })
+      .orderBy('item.createdAt', 'DESC')
+      .getMany();
+  }
+
+  async getItemById(itemId: string): Promise<TodoItem | null> {
+    return this.itemRepo.findOne({
+      where: { id: itemId },
+      relations: ['list'],
+    });
+  }
+
   async addItem(listId: string, userId: string, content: string, reminderAt?: Date): Promise<TodoItem> {
     const list = await this.getList(listId, userId);
     const count = await this.itemRepo.count({ where: { listId } });
@@ -114,7 +133,11 @@ export class TodoListService {
 
   private formatItem(item: TodoItem): string {
     const status = item.isCompleted ? '✅' : '⬜';
-    return `${status} ${item.content}`;
+    const reminder = item.reminderAt ? ' 🔔' : '';
+    const timeStr = item.reminderAt
+      ? ` (${item.reminderAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})`
+      : '';
+    return `${status} ${item.content}${reminder}${timeStr}`;
   }
 
   formatList(list: TodoList): string {

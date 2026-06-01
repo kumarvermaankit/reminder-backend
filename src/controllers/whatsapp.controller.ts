@@ -1052,6 +1052,36 @@ export class WhatsappController {
             : new Date(nowRef.getTime() + 10 * 60 * 1000);
         const diffMs = reminderDate.getTime() - nowRef.getTime();
         this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
+
+        // Check if user wants reminders for all items in a list
+        const listTitle = parsed.todoListTitle;
+        if (listTitle) {
+          const list = await this.todoListService.findListByTitle(user.id, listTitle);
+          if (list && list.items) {
+            const pending = list.items.filter(i => !i.isCompleted);
+            if (pending.length > 0) {
+              let count = 0;
+              for (const item of pending) {
+                await this.reminderService.createReminder({
+                  userId: user.id,
+                  title: item.content,
+                  description: `In ${listTitle} list`,
+                  reminderDate,
+                  msgTimestamp,
+                  todoItemId: item.id,
+                  isPersistent: false,
+                });
+                count++;
+              }
+              const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
+              const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
+              return `✅ Reminders set for ${count} item${count > 1 ? 's' : ''} in "${listTitle}" ${timeStr}!`;
+            }
+            return `All items in "${listTitle}" are already done!`;
+          }
+        }
+
+        // Create the reminder
         const created = await this.reminderService.createReminder({
           userId: user.id,
           title: parsed.title,
@@ -1063,6 +1093,7 @@ export class WhatsappController {
           reminderInterval: parsed.intervalMinutes || 0,
           maxReminderCount: parsed.maxReminderCount || 0,
           reminderCount: 0,
+          todoItemId: null,
           metadata: {
             category: parsed.category,
             priority: parsed.priority,
@@ -1070,6 +1101,19 @@ export class WhatsappController {
             source: 'whatsapp'
           }
         });
+
+        // Auto-link reminder to a matching incomplete todo item
+        if (parsed.title) {
+          const matches = await this.todoListService.findItemsByContent(user.id, parsed.title);
+          if (matches.length > 0) {
+            const match = matches[0];
+            await this.reminderService.updateReminder(created.id, {
+              todoItemId: match.id,
+              description: `In ${match.list?.title || 'a list'} list`,
+            });
+          }
+        }
+
         const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
         const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
         const repeatInfo = parsed.intervalMinutes

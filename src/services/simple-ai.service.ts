@@ -340,6 +340,11 @@ export class SimpleAiService {
     - "alert me if Infosys falls below 1500" → actionType=stock_alert, stockSymbol="infosys", targetPrice=1500, priceDirection="below"
     - "cricket score" or "India match score" → actionType=check_cricket, matchQuery="india"
     - "send me match updates every 15 min" → actionType=match_alert, matchQuery (the team or match name), intervalMinutes=15
+    - "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"
+    - "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"
+    - "set a reminder for milk at 5pm" → actionType=create_reminder, title="milk", localTime="5pm"
+    - "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
+    - "add eggs to groceries and remind me at 6pm and add milk to groceries and remind me at 7pm" → create TWO separate add_todo_item actions. For now, return only the FIRST item: actionType=add_todo_item, todoListTitle="groceries", todoItemContent="eggs", localTime="6pm"
     `;
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -385,6 +390,10 @@ RULES:
 - "alert me when Reliance hits 5000" → actionType=stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
 - "cricket score" → actionType=check_cricket, matchQuery="india"
 - "send me match updates every 15 min" → actionType=match_alert, matchQuery (team/match), intervalMinutes=15
+- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"
+- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"
+- "set a reminder for milk at 5pm" → actionType=create_reminder, title="milk", localTime="5pm"
+- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
 `;
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -410,7 +419,7 @@ RULES:
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, delete_list, system_query, update_settings, check_stock, check_cricket, stock_alert, match_alert, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15` }
+        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -435,7 +444,10 @@ RULES:
 - "price of Reliance" → check_stock, stockSymbol="reliance"
 - "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
 - "cricket score" → check_cricket, matchQuery="india"
-- "match updates every 15 min" → match_alert, matchQuery="india", intervalMinutes=15`;
+- "match updates every 15 min" → match_alert, matchQuery="india", intervalMinutes=15
+- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"
+- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"
+- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"`;
 
     const response = await provider.client.run(provider.models.parsing, {
       input: {

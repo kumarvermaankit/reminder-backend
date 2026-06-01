@@ -118,7 +118,22 @@ ${this.stockService.formatQuote(quote)}${triggered}`;
 📊 ${match.score}
 _${match.status}_`;
     }
-    // Normal reminders
+    // Normal reminders — show list context if linked to a todo item
+    if (reminder.todoItemId) {
+      try {
+        const item = await this.todoListService.getItemById(reminder.todoItemId);
+        if (item && item.list) {
+          return this.formatReminderMessage(
+            reminder.title,
+            `In ${item.list.title} list`,
+            userName,
+            reminder.reminderCount,
+          );
+        }
+      } catch {
+        // fall through to normal message
+      }
+    }
     return this.formatReminderMessage(reminder.title, reminder.description, userName, reminder.reminderCount);
   }
 

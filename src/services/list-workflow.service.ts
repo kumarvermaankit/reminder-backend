@@ -18,6 +18,10 @@ export const MENU_ROW = {
   viewList: 'menu_view_list',
   allLists: 'menu_all_lists',
   createList: 'menu_create_list',
+  createReminder: 'menu_create_reminder',
+  showReminders: 'menu_show_reminders',
+  createNote: 'menu_create_note',
+  showNotes: 'menu_show_notes',
   help: 'menu_help',
   openList: (listId: string) => `list_open:${listId}`,
 } as const;
@@ -73,7 +77,37 @@ export class ListWorkflowService implements OnModuleInit {
       'Menu',
       [
         {
-          title: 'Lists',
+          title: '⏰ Reminders',
+          rows: [
+            {
+              id: MENU_ROW.createReminder,
+              title: 'Create reminder',
+              description: 'Set a one-time or recurring reminder',
+            },
+            {
+              id: MENU_ROW.showReminders,
+              title: 'Show reminders',
+              description: 'View your pending reminders',
+            },
+          ],
+        },
+        {
+          title: '📝 Notes',
+          rows: [
+            {
+              id: MENU_ROW.createNote,
+              title: 'Save a note',
+              description: 'Store info like email, PAN, address',
+            },
+            {
+              id: MENU_ROW.showNotes,
+              title: 'Show notes',
+              description: 'Retrieve a saved note',
+            },
+          ],
+        },
+        {
+          title: '📋 Lists',
           rows: [
             {
               id: MENU_ROW.createList,
@@ -328,6 +362,30 @@ export class ListWorkflowService implements OnModuleInit {
     }
     if (rowId === MENU_ROW.allLists) {
       await this.sendListsSlideUpMenu(userPhone, userId);
+      return true;
+    }
+    if (rowId === MENU_ROW.createReminder) {
+      const body = "⏰ *Create a reminder*\n\nTell me what to remind you about and when.\n\nExample: \"remind me at 5pm to buy milk\" or \"remind me every 30 min to stand up\"";
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.showReminders) {
+      const body = "⏰ *Your reminders*\n\nSay *\"show my reminders\"* and I'll list all your pending reminders!";
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.createNote) {
+      const body = "📝 *Save a note*\n\nTell me what to remember.\n\nExample: \"remember my email is abc@xyz.com\" or \"my address is 123 Main St\"";
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.showNotes) {
+      const body = "📝 *Find a note*\n\nAsk me what you want to retrieve.\n\nExample: \"what is my pan number?\" or \"show my notes\"";
+      await this.whatsappService.sendMessage(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
     if (rowId === MENU_ROW.help) {

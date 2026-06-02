@@ -5,9 +5,11 @@ export function getChatTipsFooter(): string {
   return [
     '',
     '─────────────',
-    '💬 Chat naturally — I understand plain English.',
-    '',
-    '📋 Tap the *Menu* button below to manage lists!',
+    '💬 *Try saying:*',
+    '⏰ "remind me at 9am to drink water"',
+    '📝 "remember my email is..."',
+    '📋 "add milk to groceries"',
+    '📋 Tap 📱 *Menu* button below for lists!',
   ].join('\n');
 }
 
@@ -18,16 +20,18 @@ export function getChatTipsFooterDetailed(): string {
     '─────────────',
     '💡 *Examples you can try*',
     '',
-    '🔔 *Reminders:*',
-    '• "remind me to drink water at 9am"',
-    '• "remind me tomorrow at 10:30 to eat oats"',
+    '⏰ *Reminders:*',
+    '• "remind me at 9am to drink water"',
+    '• "show my reminders"',
+    '• "remind me every 30 min to stand up"',
     '',
     '📝 *Notes:*',
     '• "remember my pan number is ABCD1234"',
+    '• "show my notes"',
     '• "what is my pan number?"',
     '',
     '🔐 *Passwords:*',
-    '• "save my gmail password as mySecret123"',
+    '• "save gmail password as mySecret123"',
     '• "get my gmail password"',
     '',
     '📋 *Lists — chat:*',
@@ -36,10 +40,9 @@ export function getChatTipsFooterDetailed(): string {
     '• "show my groceries list"',
     '',
     '📋 *Lists — buttons:*',
-    '• Type *menu* → *Create list* → name → add items with ➕ / ✅',
+    '• Tap 📱 *Menu* button → *Create list* → name → add items with ➕ / ✅',
     '',
     '💬 Or say anything in your own words — no special commands required.',
-    '⌨️ *menu* = slide-up picker · */* = quick commands',
   ].join('\n');
 }
 

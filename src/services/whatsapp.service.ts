@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { getMenuSections } from './list-workflow.service';
+import { getMenuSections } from '../constants/menu-sections';
 
 export interface WhatsAppChatCommand {
   command_name: string;

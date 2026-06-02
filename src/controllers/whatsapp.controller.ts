@@ -136,7 +136,7 @@ export class WhatsappController {
         user.timezone,
       );
       if (!handled) {
-        const body = 'Sorry, that menu option is no longer valid. Type *menu* to open the menu again.';
+        const body = 'Sorry, that menu option is no longer valid. Tap 📋 *Menu* below to open the menu again.';
         await this.whatsappService.sendMessage(userPhone, body);
         await this.userContextService.pushMessage(user.id, 'assistant', body);
       }
@@ -236,12 +236,11 @@ export class WhatsappController {
         const nextTime = new Date(Date.now() + 10 * 60 * 1000);
         await this.reminderService.createSchedule(reminder.id, nextTime);
         const timeStr = nextTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
-        botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${timeStr}.`;
-      } else {
-        botResponse = "Got it!";
-      }
-
-      await this.whatsappService.sendMessage(userPhone, botResponse);
+          botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${timeStr}.`;
+        } else {
+          botResponse = "Got it!";
+        }
+        await this.whatsappService.sendWithMenu(userPhone, botResponse);
       await this.userContextService.pushMessage(reminder.userId, 'assistant', botResponse);
     } catch (error) {
       this.logger.error('Error handling button reply:', error);
@@ -466,7 +465,7 @@ export class WhatsappController {
         if (user.timezone === 'UTC') {
           await this.userContextService.setPendingTimezoneMessage(user.id, message);
           const botMsg = `I see you want a reminder at ${parsed.localTime}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;
-          await this.whatsappService.sendMessage(userPhone, botMsg);
+          await this.whatsappService.sendWithMenu(userPhone, botMsg);
           await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         }
@@ -1371,9 +1370,7 @@ export class WhatsappController {
     withTips = true,
   ): Promise<void> {
     const body = withTips ? appendChatTips(text) : text;
-    await this.whatsappService.sendInteractiveMessage(userPhone, body, [
-      { id: 'menu_btn', title: '📋 Menu' },
-    ]);
+    await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 

@@ -54,10 +54,9 @@ export class NotificationService {
               ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
               : [
                   { id: `done:${schedule.id}`, title: 'Done ✅' },
-                  { id: `snooze_5:${schedule.id}`, title: 'Snooze 5 min' },
                   { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
                 ];
-            await this.whatsappService.sendInteractiveMessage(user.phone, message, buttons);
+            await this.whatsappService.sendWithMenu(user.phone, message, buttons);
             sent = true;
           }
           break;
@@ -191,14 +190,14 @@ _${match.status}_`;
           '',
           `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
         ].join('\n');
-        await this.whatsappService.sendMessage(user.phone, message);
+        await this.whatsappService.sendWithMenu(user.phone, message);
       } else {
         message = [
           `☀️ Good morning, ${greeting}!`,
           '',
           `Tap the button below to create your *${todayTitle}* list for today!`,
         ].join('\n');
-        await this.whatsappService.sendInteractiveMessage(user.phone, message, [
+        await this.whatsappService.sendWithMenu(user.phone, message, [
           { id: 'daily_list_create', title: '📋 Create Daily List' },
         ]);
       }

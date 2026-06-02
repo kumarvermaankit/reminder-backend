@@ -277,6 +277,17 @@ export class WhatsappService {
     }
   }
 
+  /** Send an interactive message that always includes a 📋 Menu button (max 3 buttons total). */
+  async sendWithMenu(
+    to: string,
+    bodyText: string,
+    extraButtons: { id: string; title: string }[] = [],
+  ): Promise<string | null> {
+    const buttons = extraButtons.slice(0, 2);
+    buttons.push({ id: 'menu_btn', title: '📋 Menu' });
+    return this.sendInteractiveMessage(to, bodyText, buttons);
+  }
+
   async sendTemplateMessage(to: string, templateName: string, languageCode: string = 'en', components?: any[]): Promise<boolean> {
     try {
       const formattedPhone = to.replace(/^\+/, '');

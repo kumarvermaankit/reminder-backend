@@ -162,8 +162,8 @@ export class ListWorkflowService implements OnModuleInit {
     const trimmed = message.trim();
     if (/^cancel$/i.test(trimmed)) {
       await this.userContextService.clearListWorkflow(userId);
-      const body = 'Cancelled. Type *menu* when you need the menu again.';
-      await this.whatsappService.sendMessage(userPhone, body);
+      const body = 'Cancelled. Tap 📋 *Menu* when you need me again.';
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
@@ -171,7 +171,7 @@ export class ListWorkflowService implements OnModuleInit {
     if (workflow.state === 'awaiting_create_name') {
       const title = trimmed.slice(0, 80);
       if (!title) {
-        await this.whatsappService.sendMessage(userPhone, 'Please send a list name, or *cancel*.');
+        await this.whatsappService.sendWithMenu(userPhone, 'Please send a list name, or *cancel*.');
         return true;
       }
       const list = await this.todoListService.createList(userId, title);
@@ -187,7 +187,7 @@ export class ListWorkflowService implements OnModuleInit {
         `Send items as messages (one per line, or comma-separated).\n` +
         `Add "at 5pm" to any item to set a reminder (e.g. "buy milk at 5pm").\n` +
         `Or tap *Add item* below, then type each item. Tap *Finish* when done.`;
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       await this.sendCreateItemButtons(userPhone, userId, list.title, 0);
       return true;
@@ -196,7 +196,7 @@ export class ListWorkflowService implements OnModuleInit {
     if (workflow.state === 'adding_create_items' && workflow.listId && workflow.listTitle) {
       const items = this.parseItemLines(trimmed);
       if (items.length === 0) {
-        await this.whatsappService.sendMessage(
+        await this.whatsappService.sendWithMenu(
           userPhone,
           'Send an item name, several comma-separated items, or tap *Finish*.',
         );
@@ -241,7 +241,7 @@ export class ListWorkflowService implements OnModuleInit {
       const reminderNote = reminderCount > 0
         ? ` 🔔 (${reminderCount} with reminders)`
         : '';
-      await this.whatsappService.sendMessage(
+      await this.whatsappService.sendWithMenu(
         userPhone,
         `${added} to *${workflow.listTitle}* (${count} total)${reminderNote}. Send more or tap a button below:`,
       );
@@ -279,9 +279,9 @@ export class ListWorkflowService implements OnModuleInit {
 
     const workflow = await this.userContextService.getListWorkflow(userId);
     if (!workflow || workflow.state !== 'adding_create_items' || !workflow.listId) {
-      await this.whatsappService.sendMessage(
+      await this.whatsappService.sendWithMenu(
         userPhone,
-        'No list creation in progress. Type *menu* → *Create list* to start.',
+        'No list creation in progress. Tap 📋 *Menu* → *Create list* to start.',
       );
       return true;
     }
@@ -291,8 +291,8 @@ export class ListWorkflowService implements OnModuleInit {
         ...workflow,
         awaitingItemInput: true,
       });
-      const body = `Type the item to add to *${workflow.listTitle}*.\n\n_You can also send several items separated by commas._`;
-      await this.whatsappService.sendMessage(userPhone, body);
+      const body = `Type the item to add to *${workflow.listTitle}*.\n\n_Add "at 5pm" to set a reminder, or send several separated by commas._`;
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
@@ -366,25 +366,25 @@ export class ListWorkflowService implements OnModuleInit {
     }
     if (rowId === MENU_ROW.createReminder) {
       const body = "⏰ *Create a reminder*\n\nTell me what to remind you about and when.\n\nExample: \"remind me at 5pm to buy milk\" or \"remind me every 30 min to stand up\"";
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
     if (rowId === MENU_ROW.showReminders) {
       const body = "⏰ *Your reminders*\n\nSay *\"show my reminders\"* and I'll list all your pending reminders!";
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
     if (rowId === MENU_ROW.createNote) {
       const body = "📝 *Save a note*\n\nTell me what to remember.\n\nExample: \"remember my email is abc@xyz.com\" or \"my address is 123 Main St\"";
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
     if (rowId === MENU_ROW.showNotes) {
       const body = "📝 *Find a note*\n\nAsk me what you want to retrieve.\n\nExample: \"what is my pan number?\" or \"show my notes\"";
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
@@ -406,7 +406,7 @@ export class ListWorkflowService implements OnModuleInit {
       'What should we call it?\n' +
       '(e.g. Groceries, Packing, Work tasks)\n\n' +
       '_Reply with the name, or type *cancel*._';
-    await this.whatsappService.sendMessage(userPhone, body);
+    await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
@@ -521,7 +521,7 @@ export class ListWorkflowService implements OnModuleInit {
       const body =
         "You don't have any lists yet.\n\n" +
         'Type *menu* → *Create list*, or say *"start a groceries list"* in chat.';
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return;
     }
@@ -551,11 +551,11 @@ export class ListWorkflowService implements OnModuleInit {
       const tz = user?.timezone || 'UTC';
       const list = await this.todoListService.getList(listId, userId);
       const body = this.todoListService.formatList(list, tz);
-      await this.whatsappService.sendMessage(userPhone, body);
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
     } catch {
-      const body = "That list wasn't found. Type *menu* to try again.";
-      await this.whatsappService.sendMessage(userPhone, body);
+      const body = "That list wasn't found. Tap 📋 *Menu* to try again.";
+      await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
     }
   }
@@ -569,21 +569,21 @@ export class ListWorkflowService implements OnModuleInit {
       list = await this.todoListService.getList(list.id, userId);
     }
     const body = this.todoListService.formatList(list, timezone);
-    await this.whatsappService.sendMessage(userPhone, body);
+    await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
   private async sendHelp(userPhone: string, userId: string): Promise<void> {
     const body = appendChatTips(
-      'Here’s a quick overview. Use *menu* for the slide-up picker, or */create_list* to start the list wizard.',
+      'Here’s a quick overview. Tap 📋 *Menu* or type */create_list* to start the list wizard.',
     );
-    await this.whatsappService.sendMessage(userPhone, body);
+    await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
   private async sendWithTips(userPhone: string, userId: string, text: string): Promise<void> {
     const body = appendChatTips(text);
-    await this.whatsappService.sendMessage(userPhone, body);
+    await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 }

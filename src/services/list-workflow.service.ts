@@ -34,6 +34,35 @@ export const CREATE_BTN = {
 
 export const DAILY_LIST_BTN = 'daily_list_create';
 
+/** Shared menu sections used by both sendWithMenu and sendSlideUpMenu. */
+export function getMenuSections() {
+  return [
+    {
+      title: '⏰ Reminders',
+      rows: [
+        { id: MENU_ROW.createReminder, title: 'Create reminder', description: 'Set a one-time or recurring reminder' },
+        { id: MENU_ROW.showReminders, title: 'Show reminders', description: 'View your pending reminders' },
+      ],
+    },
+    {
+      title: '📝 Notes',
+      rows: [
+        { id: MENU_ROW.createNote, title: 'Save a note', description: 'Store info like email, PAN, address' },
+        { id: MENU_ROW.showNotes, title: 'Show notes', description: 'Retrieve a saved note' },
+      ],
+    },
+    {
+      title: '📋 Lists',
+      rows: [
+        { id: MENU_ROW.createList, title: 'Create list', description: 'New list + add items' },
+        { id: MENU_ROW.viewList, title: "Today's list", description: 'View daily to-do' },
+        { id: MENU_ROW.allLists, title: 'All lists', description: 'Browse your lists' },
+        { id: MENU_ROW.help, title: 'Help', description: 'Tips & commands' },
+      ],
+    },
+  ];
+}
+
 @Injectable()
 export class ListWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(ListWorkflowService.name);
@@ -74,63 +103,7 @@ export class ListWorkflowService implements OnModuleInit {
       userPhone,
       '☝️ Tap an option below',
       'Open menu',
-      [
-        {
-          title: '⏰ Reminders',
-          rows: [
-            {
-              id: MENU_ROW.createReminder,
-              title: 'Create reminder',
-              description: 'Set a one-time or recurring reminder',
-            },
-            {
-              id: MENU_ROW.showReminders,
-              title: 'Show reminders',
-              description: 'View your pending reminders',
-            },
-          ],
-        },
-        {
-          title: '📝 Notes',
-          rows: [
-            {
-              id: MENU_ROW.createNote,
-              title: 'Save a note',
-              description: 'Store info like email, PAN, address',
-            },
-            {
-              id: MENU_ROW.showNotes,
-              title: 'Show notes',
-              description: 'Retrieve a saved note',
-            },
-          ],
-        },
-        {
-          title: '📋 Lists',
-          rows: [
-            {
-              id: MENU_ROW.createList,
-              title: 'Create list',
-              description: 'New list + add items',
-            },
-            {
-              id: MENU_ROW.viewList,
-              title: "Today's list",
-              description: 'View daily to-do',
-            },
-            {
-              id: MENU_ROW.allLists,
-              title: 'All lists',
-              description: 'Browse your lists',
-            },
-            {
-              id: MENU_ROW.help,
-              title: 'Help',
-              description: 'Tips & commands',
-            },
-          ],
-        },
-      ],
+      getMenuSections(),
       'Reminder Assistant',
     );
   }

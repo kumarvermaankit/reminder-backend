@@ -56,7 +56,10 @@ export class NotificationService {
                   { id: `done:${schedule.id}`, title: 'Done ✅' },
                   { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
                 ];
-            await this.whatsappService.sendWithMenu(user.phone, message, buttons);
+            const allButtons = buttons.length < 3
+              ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
+              : buttons;
+            await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
             sent = true;
           }
           break;
@@ -197,8 +200,9 @@ _${match.status}_`;
           '',
           `Tap the button below to create your *${todayTitle}* list for today!`,
         ].join('\n');
-        await this.whatsappService.sendWithMenu(user.phone, message, [
+        await this.whatsappService.sendInteractiveMessage(user.phone, message, [
           { id: 'daily_list_create', title: '📋 Create Daily List' },
+          { id: 'menu_btn', title: '📋 Menu' },
         ]);
       }
 

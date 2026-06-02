@@ -423,7 +423,7 @@ export class WhatsappController {
         let selRes: string;
         switch (pendingSelection.actionType) {
           case 'get_todo':
-            selRes = this.todoListService.formatList(list);
+            selRes = this.todoListService.formatList(list, user.timezone);
             break;
           case 'complete_todo_item':
             selRes = await this.handlePendingListCompleteTodo(list, pendingSelection, user);
@@ -436,7 +436,7 @@ export class WhatsappController {
             selRes = `🗑️ Deleted "${pendingSelection.title}" list!`;
             break;
           default:
-            selRes = this.todoListService.formatList(list);
+            selRes = this.todoListService.formatList(list, user.timezone);
         }
         await this.sendAssistantReply(userPhone, user.id, selRes);
         return;
@@ -758,7 +758,7 @@ export class WhatsappController {
         const lists = await this.todoListService.findListsByTitle(user.id, parsed.todoListTitle);
         if (lists.length > 0) {
           if (lists.length === 1) {
-            return this.todoListService.formatList(lists[0]);
+            return this.todoListService.formatList(lists[0], user.timezone);
           }
           await this.userContextService.setPendingListSelection(user.id, {
             title: parsed.todoListTitle,

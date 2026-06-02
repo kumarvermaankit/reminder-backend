@@ -436,9 +436,11 @@ export class ListWorkflowService implements OnModuleInit {
   ): Promise<void> {
     await this.userContextService.clearListWorkflow(userId);
     try {
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
       const list = await this.todoListService.getList(listId, userId);
       const body =
-        `🎉 *${listTitle}* is ready!\n\n${this.todoListService.formatList(list)}\n\n` +
+        `🎉 *${listTitle}* is ready!\n\n${this.todoListService.formatList(list, tz)}\n\n` +
         `_Add more anytime: "add … to ${listTitle}"_`;
       await this.sendWithTips(userPhone, userId, body);
     } catch {
@@ -545,8 +547,10 @@ export class ListWorkflowService implements OnModuleInit {
 
   private async sendSingleList(userPhone: string, userId: string, listId: string): Promise<void> {
     try {
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
       const list = await this.todoListService.getList(listId, userId);
-      const body = this.todoListService.formatList(list);
+      const body = this.todoListService.formatList(list, tz);
       await this.whatsappService.sendMessage(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
     } catch {
@@ -564,7 +568,7 @@ export class ListWorkflowService implements OnModuleInit {
     } else {
       list = await this.todoListService.getList(list.id, userId);
     }
-    const body = this.todoListService.formatList(list);
+    const body = this.todoListService.formatList(list, timezone);
     await this.whatsappService.sendMessage(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }

@@ -135,25 +135,32 @@ export class TodoListService {
     await this.listRepo.remove(list);
   }
 
-  private formatItem(item: TodoItem): string {
+  /** Format a time for display. If timezone is provided, converts from UTC to local. */
+  private formatTime(d: Date, timezone?: string): string {
+    const opts: any = { hour: '2-digit', minute: '2-digit' };
+    if (timezone) opts.timeZone = timezone;
+    return d.toLocaleTimeString('en-US', opts);
+  }
+
+  private formatItem(item: TodoItem, timezone?: string): string {
     const status = item.isCompleted ? '✅' : '⬜';
     const reminder = item.reminderAt ? ' 🔔' : '';
     const timeStr = item.reminderAt
-      ? ` (${item.reminderAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})`
+      ? ` (${this.formatTime(item.reminderAt, timezone)})`
       : '';
     return `${status} ${item.content}${reminder}${timeStr}`;
   }
 
-  private formatItemNumbered(item: TodoItem, index: number): string {
+  private formatItemNumbered(item: TodoItem, index: number, timezone?: string): string {
     const status = item.isCompleted ? '✅' : '⬜';
     const reminder = item.reminderAt ? ' 🔔' : '';
     const timeStr = item.reminderAt
-      ? ` (${item.reminderAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})`
+      ? ` (${this.formatTime(item.reminderAt, timezone)})`
       : '';
     return `${index}. ${status} ${item.content}${reminder}${timeStr}`;
   }
 
-  formatList(list: TodoList): string {
+  formatList(list: TodoList, timezone?: string): string {
     const header = `📋 *${list.title}*`;
     if (!list.items || list.items.length === 0) {
       return `${header}\n_(empty)_`;
@@ -163,12 +170,12 @@ export class TodoListService {
     const lines: string[] = [header, ''];
     if (pending.length > 0) {
       lines.push('*To do:*');
-      pending.forEach((i, idx) => lines.push(this.formatItemNumbered(i, idx + 1)));
+      pending.forEach((i, idx) => lines.push(this.formatItemNumbered(i, idx + 1, timezone)));
       lines.push('');
     }
     if (done.length > 0) {
       lines.push('*Done:*');
-      done.forEach(i => lines.push(this.formatItem(i)));
+      done.forEach(i => lines.push(this.formatItem(i, timezone)));
     }
     return lines.join('\n');
   }

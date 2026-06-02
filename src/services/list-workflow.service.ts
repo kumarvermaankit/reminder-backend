@@ -27,6 +27,8 @@ export const CREATE_BTN = {
   viewList: 'create_view_list',
 } as const;
 
+export const DAILY_LIST_BTN = 'daily_list_create';
+
 @Injectable()
 export class ListWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(ListWorkflowService.name);
@@ -54,6 +56,7 @@ export class ListWorkflowService implements OnModuleInit {
 
   isWorkflowButton(buttonId: string): boolean {
     return (
+      buttonId === DAILY_LIST_BTN ||
       buttonId === CREATE_BTN.addItem ||
       buttonId === CREATE_BTN.finish ||
       buttonId === CREATE_BTN.viewList
@@ -192,6 +195,28 @@ export class ListWorkflowService implements OnModuleInit {
 
   async handleButton(userPhone: string, userId: string, buttonId: string): Promise<boolean> {
     if (!this.isWorkflowButton(buttonId)) return false;
+
+    // Handle daily list creation button — pre-fills the daily title
+    if (buttonId === DAILY_LIST_BTN) {
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+      const todayTitle = new Date().toLocaleDateString('en-US', {
+        timeZone: tz, month: 'long', day: 'numeric',
+      }) + ' Daily List';
+      let list = await this.todoListService.findListByTitle(userId, todayTitle);
+      if (!list) {
+        list = await this.todoListService.createList(userId, todayTitle);
+      }
+      await this.userContextService.setListWorkflow(userId, {
+        state: 'adding_create_items',
+        listId: list.id,
+        listTitle: todayTitle,
+        itemCount: 0,
+      });
+      await this.sendCreateItemButtons(userPhone, userId, todayTitle, 0);
+      await this.userContextService.pushMessage(userId, 'assistant', `Daily list "${todayTitle}" is ready!`);
+      return true;
+    }
 
     const workflow = await this.userContextService.getListWorkflow(userId);
     if (!workflow || workflow.state !== 'adding_create_items' || !workflow.listId) {

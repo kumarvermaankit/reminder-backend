@@ -173,41 +173,36 @@ _${match.status}_`;
       const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
       const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
 
-      // Use a helper to format date-based list titles
-      const dailyTitle = (offset: number) =>
-        new Date(Date.now() + offset * 86400000).toLocaleDateString('en-US', {
-          timeZone: user.timezone, month: 'long', day: 'numeric',
-        }) + ' Daily List';
+      const todayTitle = new Date().toLocaleDateString('en-US', {
+        timeZone: user.timezone, month: 'long', day: 'numeric',
+      }) + ' Daily List';
 
-      // Pre-create yesterday, today, and tomorrow lists so they always exist
-      for (const offset of [-1, 0, 1]) {
-        const title = dailyTitle(offset);
-        const existing = await this.todoListService.findListByTitle(user.id, title);
-        if (!existing) {
-          await this.todoListService.createList(user.id, title);
-        }
+      const existing = await this.todoListService.findListByTitle(user.id, todayTitle);
+      const itemCount = existing?.items?.filter(i => !i.isCompleted)?.length || 0;
+
+      let message: string;
+      if (itemCount > 0) {
+        message = [
+          `☀️ Good morning, ${greeting}!`,
+          '',
+          `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your *${todayTitle}* list.`,
+          '',
+          `Tell me what you need to do today and I'll add it to your list with reminders if you'd like.`,
+          '',
+          `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
+        ].join('\n');
+        await this.whatsappService.sendMessage(user.phone, message);
+      } else {
+        message = [
+          `☀️ Good morning, ${greeting}!`,
+          '',
+          `Tap the button below to create your *${todayTitle}* list for today!`,
+        ].join('\n');
+        await this.whatsappService.sendInteractiveMessage(user.phone, message, [
+          { id: 'daily_list_create', title: '📋 Create Daily List' },
+        ]);
       }
 
-      const todayTitle = dailyTitle(0);
-      const todayList = await this.todoListService.findListByTitle(user.id, todayTitle);
-
-      const itemCount = todayList?.items?.filter(i => !i.isCompleted)?.length || 0;
-      const listStatus = itemCount > 0
-        ? `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your *${todayTitle}* list already.`
-        : `Your *${todayTitle}* list is ready and waiting for today's tasks!`;
-
-      const message = [
-        `☀️ Good morning, ${greeting}!`,
-        '',
-        listStatus,
-        '',
-        `Tell me what you need to do today and I'll add it to your *${todayTitle}* list with reminders if you'd like.`,
-        '',
-        `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
-        'Or just list your tasks and I\'ll figure it out!',
-      ].join('\n');
-
-      await this.whatsappService.sendMessage(user.phone, message);
       await this.userService.updateUser(user.id, { lastDailyPromptDate: localToday });
       this.logger.log(`Daily prompt sent to user ${user.id}`);
       return true;

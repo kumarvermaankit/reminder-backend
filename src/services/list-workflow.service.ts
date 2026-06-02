@@ -70,11 +70,10 @@ export class ListWorkflowService implements OnModuleInit {
   }
 
   async sendSlideUpMenu(userPhone: string, userId: string): Promise<void> {
-    const body = 'What would you like to do?';
     await this.whatsappService.sendInteractiveListMessage(
       userPhone,
-      body,
-      'Menu',
+      '☝️ Tap an option below',
+      'Open menu',
       [
         {
           title: '⏰ Reminders',
@@ -134,7 +133,6 @@ export class ListWorkflowService implements OnModuleInit {
       ],
       'Reminder Assistant',
     );
-    await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 
   async handleMenuText(userPhone: string, userId: string, message: string): Promise<boolean> {

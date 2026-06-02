@@ -113,6 +113,10 @@ export class TodoListService {
     return { item: saved, listDeleted: false };
   }
 
+  async updateItemReminderAt(itemId: string, reminderAt: Date): Promise<void> {
+    await this.itemRepo.update(itemId, { reminderAt });
+  }
+
   async updateItem(itemId: string, userId: string, newContent: string): Promise<TodoItem> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId },
@@ -140,6 +144,15 @@ export class TodoListService {
     return `${status} ${item.content}${reminder}${timeStr}`;
   }
 
+  private formatItemNumbered(item: TodoItem, index: number): string {
+    const status = item.isCompleted ? '✅' : '⬜';
+    const reminder = item.reminderAt ? ' 🔔' : '';
+    const timeStr = item.reminderAt
+      ? ` (${item.reminderAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})`
+      : '';
+    return `${index}. ${status} ${item.content}${reminder}${timeStr}`;
+  }
+
   formatList(list: TodoList): string {
     const header = `📋 *${list.title}*`;
     if (!list.items || list.items.length === 0) {
@@ -150,7 +163,7 @@ export class TodoListService {
     const lines: string[] = [header, ''];
     if (pending.length > 0) {
       lines.push('*To do:*');
-      pending.forEach(i => lines.push(this.formatItem(i)));
+      pending.forEach((i, idx) => lines.push(this.formatItemNumbered(i, idx + 1)));
       lines.push('');
     }
     if (done.length > 0) {

@@ -1071,6 +1071,7 @@ export class WhatsappController {
                   todoItemId: item.id,
                   isPersistent: false,
                 });
+                await this.todoListService.updateItemReminderAt(item.id, reminderDate);
                 count++;
               }
               const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
@@ -1111,6 +1112,7 @@ export class WhatsappController {
               todoItemId: match.id,
               description: `In ${match.list?.title || 'a list'} list`,
             });
+            await this.todoListService.updateItemReminderAt(match.id, reminderDate);
           }
         }
 

@@ -5,16 +5,7 @@ export function getChatTipsFooter(): string {
   return [
     '',
     '─────────────',
-    '🤖 *How to chat with Bot:*',
-    'You can talk to me like a real assistant! No special formats or rigid commands required.',
-    '',
-    '⏰ *Reminders* ➔ "remind me at 9am to drink water"',
-    '📝 *Secure Notes* ➔ "remember my email is..."',
-    '🔐 *Passwords* ➔ "save gmail password as..."',
-    '',
-    '📋 *To-Do Lists:*',
-    '• Text naturally: "add milk to groceries"',
-    '• Or type *menu* to manage lists using buttons!',
+    '💬 Chat naturally — I understand plain English.',
   ].join('\n');
 }
 

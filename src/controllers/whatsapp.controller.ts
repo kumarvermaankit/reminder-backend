@@ -169,6 +169,24 @@ export class WhatsappController {
         return;
       }
 
+      // Menu button from the footer on every reply
+      if (buttonReply.id === 'menu_btn') {
+        let user = await this.userService.getUserByPhone(userPhone);
+        if (!user) {
+          user = await this.userService.createUser({
+            phone: userPhone,
+            name: 'there',
+            email: `user_${userPhone}@reminder.app`,
+            preferredContactMethod: 'whatsapp',
+            timezone: 'UTC',
+            isActive: true,
+          });
+        }
+        await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
+        await this.listWorkflowService.sendSlideUpMenu(userPhone, user.id);
+        return;
+      }
+
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -1353,7 +1371,9 @@ export class WhatsappController {
     withTips = true,
   ): Promise<void> {
     const body = withTips ? appendChatTips(text) : text;
-    await this.whatsappService.sendMessage(userPhone, body);
+    await this.whatsappService.sendInteractiveMessage(userPhone, body, [
+      { id: 'menu_btn', title: '📋 Menu' },
+    ]);
     await this.userContextService.pushMessage(userId, 'assistant', body);
   }
 

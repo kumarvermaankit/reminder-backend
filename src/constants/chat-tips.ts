@@ -6,6 +6,8 @@ export function getChatTipsFooter(): string {
     '',
     '─────────────',
     '💬 Chat naturally — I understand plain English.',
+    '',
+    '📋 Tap the *Menu* button below to manage lists!',
   ].join('\n');
 }
 

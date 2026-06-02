@@ -3,6 +3,7 @@ import { WhatsappService, WhatsAppChatCommand } from './whatsapp.service';
 import { TodoListService } from './todo-list.service';
 import { UserContextService } from './user-context.service';
 import { UserService } from './user.service';
+import { ReminderService } from './reminder.service';
 import { appendChatTips } from '../constants/chat-tips';
 
 export const CHAT_COMMANDS: WhatsAppChatCommand[] = [
@@ -38,6 +39,7 @@ export class ListWorkflowService implements OnModuleInit {
     private readonly todoListService: TodoListService,
     private readonly whatsappService: WhatsappService,
     private readonly userService: UserService,
+    private readonly reminderService: ReminderService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -149,6 +151,7 @@ export class ListWorkflowService implements OnModuleInit {
       const body =
         `📁 Created *${list.title}*.\n\n` +
         `Send items as messages (one per line, or comma-separated).\n` +
+        `Add "at 5pm" to any item to set a reminder (e.g. "buy milk at 5pm").\n` +
         `Or tap *Add item* below, then type each item. Tap *Finish* when done.`;
       await this.whatsappService.sendMessage(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
@@ -166,10 +169,29 @@ export class ListWorkflowService implements OnModuleInit {
         return true;
       }
 
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+
       let count = workflow.itemCount || 0;
+      let reminderCount = 0;
       for (const content of items) {
-        await this.todoListService.addItem(workflow.listId, userId, content);
+        const { cleanContent, parsedTime } = this.parseTimeFromItem(content);
+        const saved = await this.todoListService.addItem(workflow.listId, userId, cleanContent);
         count++;
+        if (parsedTime) {
+          const reminderDate = this.computeReminderDate(parsedTime, tz);
+          if (reminderDate) {
+            await this.reminderService.createReminder({
+              userId,
+              title: cleanContent,
+              description: `In ${workflow.listTitle} list`,
+              reminderDate,
+              todoItemId: saved.id,
+            });
+            await this.todoListService.updateItemReminderAt(saved.id, reminderDate);
+            reminderCount++;
+          }
+        }
       }
 
       await this.userContextService.setListWorkflow(userId, {
@@ -182,9 +204,12 @@ export class ListWorkflowService implements OnModuleInit {
         items.length === 1
           ? `✅ Added *${items[0]}*`
           : `✅ Added ${items.length} items`;
+      const reminderNote = reminderCount > 0
+        ? ` 🔔 (${reminderCount} with reminders)`
+        : '';
       await this.whatsappService.sendMessage(
         userPhone,
-        `${added} to *${workflow.listTitle}* (${count} total). Send more or tap a button below:`,
+        `${added} to *${workflow.listTitle}* (${count} total)${reminderNote}. Send more or tap a button below:`,
       );
       await this.sendCreateItemButtons(userPhone, userId, workflow.listTitle, count);
       return true;
@@ -335,6 +360,7 @@ export class ListWorkflowService implements OnModuleInit {
   ): Promise<void> {
     const body =
       `*${listTitle}* — ${itemCount} item${itemCount === 1 ? '' : 's'} so far.\n` +
+      `_Add "at 5pm" to any item to set a reminder._\n\n` +
       `Keep sending items, or choose:`;
     await this.whatsappService.sendInteractiveMessage(userPhone, body, [
       { id: CREATE_BTN.addItem, title: '➕ Add item' },
@@ -370,6 +396,44 @@ export class ListWorkflowService implements OnModuleInit {
         ? text.split(',')
         : [text];
     return parts.map((s) => s.trim()).filter((s) => s.length > 0).slice(0, 20);
+  }
+
+  /** Extract time from item text like "buy milk at 5pm" → { cleanContent: "buy milk", parsedTime: {hours:17,minutes:0} } */
+  private parseTimeFromItem(text: string): { cleanContent: string; parsedTime: { hours: number; minutes: number } | null } {
+    const match = text.match(/^(.+?)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+    if (match) {
+      let h = parseInt(match[2], 10);
+      const m = parseInt(match[3] || '0', 10);
+      const mer = match[4]?.toLowerCase();
+      if (mer === 'pm' && h < 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
+      if (h > 23 || m > 59) return { cleanContent: text, parsedTime: null };
+      return { cleanContent: match[1].trim(), parsedTime: { hours: h, minutes: m } };
+    }
+    return { cleanContent: text, parsedTime: null };
+  }
+
+  /** Compute a Date for the next occurrence of parsedTime in the user's timezone. */
+  private computeReminderDate(
+    parsedTime: { hours: number; minutes: number },
+    timezone: string,
+  ): Date | null {
+    const now = new Date();
+    const localNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const localToday = new Date(
+      localNow.getFullYear(),
+      localNow.getMonth(),
+      localNow.getDate(),
+      parsedTime.hours,
+      parsedTime.minutes,
+      0,
+    );
+    const utcToday = new Date(localToday.toLocaleString('en-US', { timeZone: 'UTC' }));
+    if (utcToday > now) return utcToday;
+    // If time has passed today, schedule for tomorrow
+    const localTomorrow = new Date(localToday);
+    localTomorrow.setDate(localTomorrow.getDate() + 1);
+    return new Date(localTomorrow.toLocaleString('en-US', { timeZone: 'UTC' }));
   }
 
   private async runMenuAction(

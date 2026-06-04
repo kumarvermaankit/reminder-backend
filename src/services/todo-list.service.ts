@@ -76,7 +76,12 @@ export class TodoListService {
   async addItem(listId: string, userId: string, content: string, reminderAt?: Date): Promise<TodoItem> {
     const list = await this.getList(listId, userId);
     const count = await this.itemRepo.count({ where: { listId } });
-    const item = this.itemRepo.create({ listId, content, position: count, reminderAt });
+    const maxItem = await this.itemRepo.findOne({
+      where: { listId },
+      order: { itemNumber: 'DESC' },
+    });
+    const itemNumber = (maxItem?.itemNumber || 0) + 1;
+    const item = this.itemRepo.create({ listId, content, position: count, itemNumber, reminderAt });
     return this.itemRepo.save(item);
   }
 
@@ -117,6 +122,23 @@ export class TodoListService {
     await this.itemRepo.update(itemId, { reminderAt });
   }
 
+  async renameList(listId: string, userId: string, newTitle: string): Promise<TodoList> {
+    const list = await this.getList(listId, userId);
+    list.title = newTitle;
+    return this.listRepo.save(list);
+  }
+
+  async deleteItem(itemId: string, userId: string): Promise<void> {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId },
+      relations: ['list'],
+    });
+    if (!item || item.list.userId !== userId) {
+      throw new NotFoundException('Todo item not found');
+    }
+    await this.itemRepo.remove(item);
+  }
+
   async updateItem(itemId: string, userId: string, newContent: string): Promise<TodoItem> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId },
@@ -151,13 +173,13 @@ export class TodoListService {
     return `${status} ${item.content}${reminder}${timeStr}`;
   }
 
-  private formatItemNumbered(item: TodoItem, index: number, timezone?: string): string {
+  private formatItemNumbered(item: TodoItem, timezone?: string): string {
     const status = item.isCompleted ? '✅' : '⬜';
     const reminder = item.reminderAt ? ' 🔔' : '';
     const timeStr = item.reminderAt
       ? ` (${this.formatTime(item.reminderAt, timezone)})`
       : '';
-    return `${index}. ${status} ${item.content}${reminder}${timeStr}`;
+    return `${item.itemNumber}. ${status} ${item.content}${reminder}${timeStr}`;
   }
 
   formatList(list: TodoList, timezone?: string): string {
@@ -170,7 +192,7 @@ export class TodoListService {
     const lines: string[] = [header, ''];
     if (pending.length > 0) {
       lines.push('*To do:*');
-      pending.forEach((i, idx) => lines.push(this.formatItemNumbered(i, idx + 1, timezone)));
+      pending.forEach(i => lines.push(this.formatItemNumbered(i, timezone)));
       lines.push('');
     }
     if (done.length > 0) {

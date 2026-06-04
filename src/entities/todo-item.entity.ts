@@ -22,6 +22,9 @@ export class TodoItem {
   @Column({ default: 0 })
   position: number;
 
+  @Column({ name: 'item_number', default: 0 })
+  itemNumber: number;
+
   @Column({ name: 'reminder_at', type: 'datetime', nullable: true })
   reminderAt: Date;
 

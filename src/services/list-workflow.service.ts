@@ -5,7 +5,7 @@ import { UserContextService } from './user-context.service';
 import { UserService } from './user.service';
 import { ReminderService } from './reminder.service';
 import { appendChatTips } from '../constants/chat-tips';
-import { MENU_ROW, getMenuSections } from '../constants/menu-sections';
+import { MENU_ROW, getMenuSections, getEditListSections } from '../constants/menu-sections';
 
 export const CHAT_COMMANDS: WhatsAppChatCommand[] = [
   { command_name: 'view_list', command_description: "View today's to-do list" },
@@ -54,7 +54,9 @@ export class ListWorkflowService implements OnModuleInit {
       buttonId === DAILY_LIST_BTN ||
       buttonId === CREATE_BTN.addItem ||
       buttonId === CREATE_BTN.finish ||
-      buttonId === CREATE_BTN.viewList
+      buttonId === CREATE_BTN.viewList ||
+      buttonId === MENU_ROW.editAddItems ||
+      buttonId === MENU_ROW.editFinish
     );
   }
 
@@ -78,6 +80,145 @@ export class ListWorkflowService implements OnModuleInit {
       await this.startCreateList(userPhone, userId);
       return true;
     }
+    return false;
+  }
+
+  /** Active edit-list wizard (skip AI). */
+  async handleEditWorkflow(
+    userPhone: string,
+    userId: string,
+    message: string,
+  ): Promise<boolean> {
+    const workflow = await this.userContextService.getListWorkflow(userId);
+    if (!workflow || !workflow.state.startsWith('editing')) return false;
+
+    const trimmed = message.trim();
+    if (/^cancel$/i.test(trimmed)) {
+      await this.userContextService.clearListWorkflow(userId);
+      const body = 'Cancelled. Tap 📋 *Menu* when you need me again.';
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+
+    // ── Rename sub-flow ────────────────────────────────────────────────────
+    if (workflow.state === 'editing_list_rename' && workflow.listId) {
+      const newTitle = trimmed.slice(0, 80);
+      if (!newTitle) {
+        await this.whatsappService.sendWithMenu(userPhone, 'Please send a new name for the list, or *cancel*.');
+        return true;
+      }
+      await this.todoListService.renameList(workflow.listId, userId, newTitle);
+      await this.userContextService.clearListWorkflow(userId);
+      const body = `✏️ Renamed to *${newTitle}*!`;
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+
+    // ── Add-items sub-flow (reuses item-adding logic) ──────────────────────
+    if (workflow.state === 'editing_list' && workflow.editAddingItems && workflow.listId && workflow.listTitle) {
+      const items = this.parseItemLines(trimmed);
+      if (items.length === 0) {
+        await this.whatsappService.sendWithMenu(
+          userPhone,
+          'Send an item name, several comma-separated items, or tap *Finish*.',
+        );
+        return true;
+      }
+
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+
+      let count = workflow.itemCount || 0;
+      let reminderCount = 0;
+      for (const content of items) {
+        const { cleanContent, parsedTime } = this.parseTimeFromItem(content);
+        const saved = await this.todoListService.addItem(workflow.listId, userId, cleanContent);
+        count++;
+        if (parsedTime) {
+          const reminderDate = this.computeReminderDate(parsedTime, tz);
+          if (reminderDate) {
+            await this.reminderService.createReminder({
+              userId,
+              title: cleanContent,
+              description: `In ${workflow.listTitle} list`,
+              reminderDate,
+              todoItemId: saved.id,
+            });
+            await this.todoListService.updateItemReminderAt(saved.id, reminderDate);
+            reminderCount++;
+          }
+        }
+      }
+
+      await this.userContextService.setListWorkflow(userId, {
+        ...workflow,
+        itemCount: count,
+        awaitingItemInput: false,
+      });
+
+      const added = items.length === 1 ? `✅ Added *${items[0]}*` : `✅ Added ${items.length} items`;
+      const reminderNote = reminderCount > 0 ? ` 🔔 (${reminderCount} with reminders)` : '';
+      await this.whatsappService.sendWithMenu(
+        userPhone,
+        `${added} to *${workflow.listTitle}* (${count} total)${reminderNote}. Keep sending items or choose:`,
+      );
+      await this.sendEditAddingButtons(userPhone, userId, workflow.listTitle, workflow.listId, count);
+      return true;
+    }
+
+    // ── Attach-reminder time sub-flow ──────────────────────────────────────
+    if (workflow.state === 'editing_list_reminder_time' && workflow.editTargetItemId) {
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+
+      const timeMatch = trimmed.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+      if (!timeMatch) {
+        await this.whatsappService.sendWithMenu(
+          userPhone,
+          "Please tell me the time. Example: *5pm* or *7:30am* or type *cancel*.",
+        );
+        return true;
+      }
+
+      let h = parseInt(timeMatch[1], 10);
+      const m = parseInt(timeMatch[2] || '0', 10);
+      const mer = timeMatch[3]?.toLowerCase();
+      if (mer === 'pm' && h < 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
+      if (h > 23 || m > 59) {
+        await this.whatsappService.sendWithMenu(userPhone, "That doesn't look like a valid time. Try *5pm* or *7:30am*.");
+        return true;
+      }
+
+      const reminderDate = this.computeReminderDate({ hours: h, minutes: m }, tz);
+      if (!reminderDate) {
+        await this.whatsappService.sendWithMenu(userPhone, 'Could not parse that time. Try again or *cancel*.');
+        return true;
+      }
+
+      await this.todoListService.updateItemReminderAt(workflow.editTargetItemId, reminderDate);
+
+      const item = await this.todoListService.getItemById(workflow.editTargetItemId);
+      const itemTitle = item?.content || 'item';
+
+      await this.reminderService.createReminder({
+        userId,
+        title: itemTitle,
+        description: `In ${workflow.listTitle || 'list'} list`,
+        reminderDate,
+        todoItemId: workflow.editTargetItemId,
+      });
+
+      await this.userContextService.clearListWorkflow(userId);
+      const timeStr = reminderDate.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+      const body = `🔔 Reminder set for *${itemTitle}* at ${timeStr}!`;
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+
     return false;
   }
 
@@ -209,6 +350,38 @@ export class ListWorkflowService implements OnModuleInit {
     }
 
     const workflow = await this.userContextService.getListWorkflow(userId);
+
+    // ── Edit add-items button ──────────────────────────────────────────────
+    if (buttonId === MENU_ROW.editAddItems) {
+      if (!workflow || workflow.state !== 'editing_list' || !workflow.listId) {
+        await this.whatsappService.sendWithMenu(userPhone, 'No list is being edited right now.');
+        return true;
+      }
+      await this.userContextService.setListWorkflow(userId, {
+        ...workflow,
+        editAddingItems: true,
+        awaitingItemInput: false,
+      });
+      const body =
+        `Send items to add to *${workflow.listTitle}* (one per line or comma-separated).\n` +
+        `Add "at 5pm" to any item to set a reminder. Tap *Finish* when done.`;
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      await this.sendEditAddingButtons(userPhone, userId, workflow.listTitle, workflow.listId, workflow.itemCount || 0);
+      return true;
+    }
+
+    // ── Edit finish button ──────────────────────────────────────────────────
+    if (buttonId === MENU_ROW.editFinish) {
+      if (!workflow || workflow.state !== 'editing_list' || !workflow.listId) {
+        await this.whatsappService.sendWithMenu(userPhone, 'No list is being edited right now.');
+        return true;
+      }
+      await this.finishEditList(userPhone, userId, workflow.listId);
+      return true;
+    }
+
+    // ── Create-list buttons ─────────────────────────────────────────────────
     if (!workflow || workflow.state !== 'adding_create_items' || !workflow.listId) {
       await this.whatsappService.sendWithMenu(
         userPhone,
@@ -323,8 +496,85 @@ export class ListWorkflowService implements OnModuleInit {
       await this.runMenuAction('help', userPhone, userId, timezone);
       return true;
     }
+    if (rowId === MENU_ROW.editList) {
+      await this.sendEditListPicker(userPhone, userId);
+      return true;
+    }
+    if (rowId.startsWith('edit_list_open:')) {
+      await this.startEditList(userPhone, userId, rowId.slice('edit_list_open:'.length));
+      return true;
+    }
     if (rowId.startsWith('list_open:')) {
       await this.sendSingleList(userPhone, userId, rowId.slice('list_open:'.length));
+      return true;
+    }
+    // ── Edit sub-flow selections ────────────────────────────────────────────
+    if (rowId === MENU_ROW.editRename) {
+      const workflow = await this.userContextService.getListWorkflow(userId);
+      if (!workflow || workflow.state !== 'editing_list') return false;
+      await this.userContextService.setListWorkflow(userId, { ...workflow, state: 'editing_list_rename' });
+      const body = '✏️ Send me the new name for the list, or type *cancel*.';
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.editAddItems) {
+      const workflow = await this.userContextService.getListWorkflow(userId);
+      if (!workflow || workflow.state !== 'editing_list') return false;
+      await this.userContextService.setListWorkflow(userId, { ...workflow, editAddingItems: true });
+      const body =
+        `Send items to add to *${workflow.listTitle}* (one per line or comma-separated).\n` +
+        `Add "at 5pm" to any item to set a reminder. Tap *Finish* when done.`;
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      await this.sendEditAddingButtons(userPhone, userId, workflow.listTitle, workflow.listId, workflow.itemCount || 0);
+      return true;
+    }
+    if (rowId === MENU_ROW.editRemoveItem) {
+      const workflow = await this.userContextService.getListWorkflow(userId);
+      if (!workflow || workflow.state !== 'editing_list' || !workflow.listId) return false;
+      await this.sendEditItemPicker(userPhone, userId, workflow.listId, 'remove');
+      return true;
+    }
+    if (rowId === MENU_ROW.editAttachReminder) {
+      const workflow = await this.userContextService.getListWorkflow(userId);
+      if (!workflow || workflow.state !== 'editing_list' || !workflow.listId) return false;
+      await this.sendEditItemPicker(userPhone, userId, workflow.listId, 'reminder');
+      return true;
+    }
+    if (rowId.startsWith('edit_pick_item:')) {
+      const workflow = await this.userContextService.getListWorkflow(userId);
+      if (!workflow || workflow.state !== 'editing_list') return false;
+      const itemId = rowId.slice('edit_pick_item:'.length);
+      if (workflow.editAction === 'reminder') {
+        await this.userContextService.setListWorkflow(userId, {
+          ...workflow,
+          state: 'editing_list_reminder_time',
+          editTargetItemId: itemId,
+        });
+        const item = await this.todoListService.getItemById(itemId);
+        const itemTitle = item?.content || 'item';
+        const body = `🔔 What time for *${itemTitle}*?\n\nExample: *5pm* or *7:30am*`;
+        await this.whatsappService.sendWithMenu(userPhone, body);
+        await this.userContextService.pushMessage(userId, 'assistant', body);
+      } else {
+        try {
+          await this.todoListService.deleteItem(itemId, userId);
+          const item = await this.todoListService.getItemById(itemId);
+          if (item?.reminderAt) {
+            const reminders = await this.reminderService.getPendingRemindersForUser(userId);
+            const linked = reminders.find(r => r.todoItemId === itemId);
+            if (linked) {
+              await this.reminderService.deleteReminder(linked.id);
+            }
+          }
+          const body = `❌ Removed that item.`;
+          await this.whatsappService.sendWithMenu(userPhone, body);
+          await this.userContextService.pushMessage(userId, 'assistant', body);
+        } catch {
+          await this.whatsappService.sendWithMenu(userPhone, 'Could not find that item to remove.');
+        }
+      }
       return true;
     }
     return false;
@@ -516,5 +766,134 @@ export class ListWorkflowService implements OnModuleInit {
     const body = appendChatTips(text);
     await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  // ── Edit-list helper methods ─────────────────────────────────────────────
+
+  private async sendEditListPicker(userPhone: string, userId: string): Promise<void> {
+    const lists = await this.todoListService.getLists(userId);
+    if (lists.length === 0) {
+      const body = "You don't have any lists yet. Type *menu* → *Create list* to make one.";
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return;
+    }
+
+    const rows = lists.slice(0, 10).map((l) => {
+      const pending = (l.items || []).filter((i) => !i.isCompleted).length;
+      return {
+        id: MENU_ROW.editListOpen(l.id),
+        title: l.title.slice(0, 24),
+        description: `${pending} pending`.slice(0, 72),
+      };
+    });
+
+    const body = 'Which list would you like to edit?';
+    await this.whatsappService.sendInteractiveListMessage(
+      userPhone,
+      body,
+      'Edit list',
+      [{ title: 'Your lists', rows }],
+    );
+    await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  async startEditList(userPhone: string, userId: string, listId: string): Promise<void> {
+    try {
+      const list = await this.todoListService.getList(listId, userId);
+      const pendingCount = (list.items || []).filter(i => !i.isCompleted).length;
+      await this.userContextService.setListWorkflow(userId, {
+        state: 'editing_list',
+        listId: list.id,
+        listTitle: list.title,
+        itemCount: pendingCount,
+      });
+
+      const body = `✏️ Editing *${list.title}* (${pendingCount} item${pendingCount === 1 ? '' : 's'})\n\nChoose what to do:`;
+      await this.whatsappService.sendInteractiveListMessage(
+        userPhone,
+        body,
+        'Edit options',
+        getEditListSections(),
+      );
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+    } catch {
+      const body = "That list wasn't found. Tap 📋 *Menu* to try again.";
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+    }
+  }
+
+  private async sendEditItemPicker(
+    userPhone: string,
+    userId: string,
+    listId: string,
+    action: 'remove' | 'reminder',
+  ): Promise<void> {
+    const workflow = await this.userContextService.getListWorkflow(userId);
+    if (!workflow) return;
+
+    await this.userContextService.setListWorkflow(userId, { ...workflow, editAction: action });
+
+    try {
+      const list = await this.todoListService.getList(listId, userId);
+      const pending = (list.items || []).filter(i => !i.isCompleted);
+      if (pending.length === 0) {
+        const body = "There are no pending items in this list.";
+        await this.whatsappService.sendWithMenu(userPhone, body);
+        await this.userContextService.pushMessage(userId, 'assistant', body);
+        return;
+      }
+
+      const rows = pending.slice(0, 10).map((i) => ({
+        id: MENU_ROW.editPickItem(i.id),
+        title: i.content.slice(0, 24),
+        description: i.reminderAt ? '🔔 Has reminder' : '',
+      }));
+
+      const verb = action === 'remove' ? 'Which item to remove?' : 'Which item should get a reminder?';
+      await this.whatsappService.sendInteractiveListMessage(
+        userPhone,
+        verb,
+        'Select item',
+        [{ title: list.title, rows }],
+      );
+      await this.userContextService.pushMessage(userId, 'assistant', verb);
+    } catch {
+      const body = 'Could not load items for that list.';
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+    }
+  }
+
+  private async sendEditAddingButtons(
+    userPhone: string,
+    userId: string,
+    listTitle: string,
+    listId: string,
+    itemCount: number,
+  ): Promise<void> {
+    const body =
+      `*${listTitle}* — ${itemCount} item${itemCount === 1 ? '' : 's'} so far.\n` +
+      `_Add "at 5pm" to any item to set a reminder._\n\n` +
+      `Keep sending items, or choose:`;
+    await this.whatsappService.sendInteractiveMessage(userPhone, body, [
+      { id: MENU_ROW.editAddItems, title: '➕ Add item' },
+      { id: MENU_ROW.editFinish, title: '✅ Done' },
+    ]);
+    await this.userContextService.pushMessage(userId, 'assistant', body);
+  }
+
+  private async finishEditList(userPhone: string, userId: string, listId: string): Promise<void> {
+    await this.userContextService.clearListWorkflow(userId);
+    try {
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+      const list = await this.todoListService.getList(listId, userId);
+      const body = `✏️ Done editing *${list.title}*!\n\n${this.todoListService.formatList(list, tz)}`;
+      await this.sendWithTips(userPhone, userId, body);
+    } catch {
+      await this.sendWithTips(userPhone, userId, 'Done editing! Tap 📋 *Menu* for more options.');
+    }
   }
 }

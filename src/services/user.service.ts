@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -101,19 +103,25 @@ export class UserService {
   // Find active users who are due for their daily prompt
   async getUsersDueForDailyPrompt(): Promise<User[]> {
     const users = await this.userRepository.find({ where: { isActive: true } });
-    return users.filter(u => {
-      const localToday = this.getUserLocalDate(u);
-      // Already prompted today
-      if (u.lastDailyPromptDate === localToday) return false;
+    const due: User[] = [];
+    for (const u of users) {
+      try {
+        const localToday = this.getUserLocalDate(u);
+        // Already prompted today
+        if (u.lastDailyPromptDate === localToday) continue;
 
-      // Check if prompt time has passed in user's local time
-      const localNow = this.getUserLocalTime(u);
-      const [pHours, pMins] = (u.dailyPromptTime || '07:00').split(':').map(Number);
-      const promptMin = pHours * 60 + pMins;
-      const nowMin = localNow.getHours() * 60 + localNow.getMinutes();
+        // Check if prompt time has passed in user's local time
+        const localNow = this.getUserLocalTime(u);
+        const [pHours, pMins] = (u.dailyPromptTime || '07:00').split(':').map(Number);
+        const promptMin = pHours * 60 + pMins;
+        const nowMin = localNow.getHours() * 60 + localNow.getMinutes();
 
-      return nowMin >= promptMin;
-    });
+        if (nowMin >= promptMin) due.push(u);
+      } catch (error) {
+        this.logger.warn(`Skipping daily prompt check for user ${u.id} (${u.timezone}): ${error.message}`);
+      }
+    }
+    return due;
   }
 
   // Infer timezone from message timestamp + greeting

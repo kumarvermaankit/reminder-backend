@@ -292,7 +292,10 @@ export class WhatsappController {
       // Push user message to conversation history
       await this.userContextService.pushMessage(user.id, 'user', message);
 
-      // Create-list wizard, menu, slash commands — before onboarding / AI
+      // List creation/edit wizards, menu, slash commands — before onboarding / AI
+      if (await this.listWorkflowService.handleEditWorkflow(userPhone, user.id, message)) {
+        return;
+      }
       if (await this.listWorkflowService.handleCreateWorkflow(userPhone, user.id, message)) {
         return;
       }
@@ -430,6 +433,10 @@ export class WhatsappController {
           case 'edit_todo_item':
             selRes = await this.handlePendingListEditTodo(list, pendingSelection, user);
             break;
+          case 'edit_todo_list':
+            await this.listWorkflowService.startEditList(userPhone, user.id, selectedId);
+            selRes = '';
+            break;
           case 'delete_list':
             await this.todoListService.deleteList(selectedId, user.id);
             selRes = `🗑️ Deleted "${pendingSelection.title}" list!`;
@@ -528,6 +535,9 @@ export class WhatsappController {
         case 'edit_todo_item':
           botResponse = await this.handleEditTodoItem(parsed, user);
           break;
+        case 'edit_todo_list':
+          botResponse = await this.handleEditTodoList(parsed, user);
+          break;
         case 'delete_list':
           botResponse = await this.handleDeleteList(parsed, user);
           break;
@@ -572,6 +582,20 @@ export class WhatsappController {
     }
   }
 
+  private resolveOrdinal(ref: string, items: any[]): any | null {
+    const lower = ref.toLowerCase();
+    if (/^(first|1st|#1|top)\b/.test(lower)) return items[0] || null;
+    if (/^(second|2nd|#2)\b/.test(lower)) return items[1] || null;
+    if (/^(third|3rd|#3)\b/.test(lower)) return items[2] || null;
+    if (/^last\b/.test(lower)) return items[items.length - 1] || null;
+    const nth = lower.match(/^(\d+)(?:st|nd|rd|th)\b/);
+    if (nth) {
+      const idx = parseInt(nth[1], 10) - 1;
+      if (idx >= 0 && idx < items.length) return items[idx];
+    }
+    return null;
+  }
+
   private async handlePendingListCompleteTodo(
     list: any,
     pendingSelection: any,
@@ -582,9 +606,12 @@ export class WhatsappController {
     let listDeleted = false;
     const pending = list.items.filter(i => !i.isCompleted);
     for (const target of targets) {
-      const match = pending.find(i =>
-        i.content.toLowerCase().includes(target.toLowerCase())
-      );
+      let match = this.resolveOrdinal(target, pending);
+      if (!match) {
+        match = pending.find(i =>
+          i.content.toLowerCase().includes(target.toLowerCase())
+        );
+      }
       if (match) {
         const result = await this.todoListService.completeItem(match.id, user.id);
         doneCount++;
@@ -606,13 +633,10 @@ export class WhatsappController {
     const ref = pendingSelection.itemRef || '';
     const newContent = pendingSelection.newContent || '';
     const pending = list.items.filter(i => !i.isCompleted);
-    let match: any = null;
-    const lowerRef = ref.toLowerCase();
-    if (/^(first|1st|#1|top)\b/.test(lowerRef)) match = pending[0] || null;
-    else if (/^(second|2nd|#2)\b/.test(lowerRef)) match = pending[1] || null;
-    else if (/^(third|3rd|#3)\b/.test(lowerRef)) match = pending[2] || null;
-    else if (/^last\b/.test(lowerRef)) match = pending[pending.length - 1] || null;
-    else match = pending.find(i => i.content.toLowerCase().includes(lowerRef)) || null;
+    let match = this.resolveOrdinal(ref, pending);
+    if (!match) {
+      match = pending.find(i => i.content.toLowerCase().includes(ref.toLowerCase())) || null;
+    }
     if (match) {
       await this.todoListService.updateItem(match.id, user.id, newContent);
       return `✅ Updated "${ref}" to "${newContent}" in ${list.title}!`;
@@ -795,19 +819,10 @@ export class WhatsappController {
             const allItems = await this.todoListService.getItems(lists[0].id, user.id);
             const pending = allItems.filter(i => !i.isCompleted);
             for (const target of items) {
-              const lowerRef = target.toLowerCase();
-              let match: any = null;
-              if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-                match = pending[0] || null;
-              } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-                match = pending[1] || null;
-              } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-                match = pending[2] || null;
-              } else if (/^last\b/.test(lowerRef)) {
-                match = pending[pending.length - 1] || null;
-              } else {
+              let match = this.resolveOrdinal(target, pending);
+              if (!match) {
                 match = pending.find(i =>
-                  i.content.toLowerCase().includes(lowerRef)
+                  i.content.toLowerCase().includes(target.toLowerCase())
                 );
               }
               if (match) {
@@ -855,21 +870,12 @@ export class WhatsappController {
           if (lists.length === 1) {
             const allItems = await this.todoListService.getItems(lists[0].id, user.id);
             const pending = allItems.filter(i => !i.isCompleted);
-            let match: any = null;
-            const lowerRef = targetRef.toLowerCase();
-            if (/^(first|1st|#1|top)\b/.test(lowerRef)) {
-              match = pending[0] || null;
-            } else if (/^(second|2nd|#2)\b/.test(lowerRef)) {
-              match = pending[1] || null;
-            } else if (/^(third|3rd|#3)\b/.test(lowerRef)) {
-              match = pending[2] || null;
-            } else if (/^last\b/.test(lowerRef)) {
-              match = pending[pending.length - 1] || null;
-            } else {
+            let match = this.resolveOrdinal(targetRef, pending);
+            if (!match) {
               match = pending.find(i =>
-                i.content.toLowerCase().includes(lowerRef)
+                i.content.toLowerCase().includes(targetRef.toLowerCase())
               ) || allItems.find(i =>
-                i.content.toLowerCase().includes(lowerRef)
+                i.content.toLowerCase().includes(targetRef.toLowerCase())
               );
             }
             if (match) {
@@ -897,6 +903,36 @@ export class WhatsappController {
       }
     }
     return "Please tell me which item to edit and what to change it to. For example: 'edit first item as buy milk'.";
+  }
+
+  private async handleEditTodoList(parsed: any, user: any): Promise<string> {
+    const listTitle = parsed.todoListTitle || '';
+    if (!listTitle) {
+      return "Which list would you like to edit? Say *\"edit my shopping list\"*.";
+    }
+    try {
+      const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
+      if (lists.length === 0) {
+        return `I don't have a list called "${listTitle}".`;
+      }
+      if (lists.length === 1) {
+        await this.listWorkflowService.startEditList(user.phone, user.id, lists[0].id);
+        return '';
+      }
+      // Multiple lists with the same name
+      await this.userContextService.setPendingListSelection(user.id, {
+        title: listTitle,
+        listIds: lists.map(l => l.id),
+        listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+        actionType: 'edit_todo_list',
+      });
+      return `I found ${lists.length} lists called "${listTitle}":\n\n${lists.map((l, i) =>
+        `*${i + 1}.* (created ${l.createdAt.toLocaleDateString()})`
+      ).join('\n')}\n\nWhich one would you like to edit? Reply with the number.`;
+    } catch (e) {
+      this.logger.error('Failed to start edit list flow:', e);
+      return 'Sorry, I could not start editing that list.';
+    }
   }
 
   private async handleDeleteList(parsed: any, user: any): Promise<string> {
@@ -1070,15 +1106,37 @@ export class WhatsappController {
         const diffMs = reminderDate.getTime() - nowRef.getTime();
         this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
 
-        // Check if user wants reminders for all items in a list
+        // Check if user wants reminders for items in a list
         const listTitle = parsed.todoListTitle;
         if (listTitle) {
           const list = await this.todoListService.findListByTitle(user.id, listTitle);
           if (list && list.items) {
             const pending = list.items.filter(i => !i.isCompleted);
             if (pending.length > 0) {
+              const itemRefs = parsed.todoItemContents || (parsed.todoItemContent ? [parsed.todoItemContent] : []);
+              const targets = itemRefs.length > 0 ? itemRefs : null;
+              let itemsToRemind: any[];
+              if (targets) {
+                itemsToRemind = [];
+                for (const ref of targets) {
+                  let match = this.resolveOrdinal(ref, pending);
+                  if (!match) {
+                    match = pending.find(i =>
+                      i.content.toLowerCase().includes(ref.toLowerCase())
+                    );
+                  }
+                  if (match && !itemsToRemind.some(i => i.id === match.id)) {
+                    itemsToRemind.push(match);
+                  }
+                }
+                if (itemsToRemind.length === 0) {
+                  return `I couldn't find "${targets.join(', ')}" in the "${listTitle}" list.`;
+                }
+              } else {
+                itemsToRemind = pending;
+              }
               let count = 0;
-              for (const item of pending) {
+              for (const item of itemsToRemind) {
                 await this.reminderService.createReminder({
                   userId: user.id,
                   title: item.content,

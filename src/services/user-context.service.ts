@@ -15,12 +15,18 @@ export interface PendingListSelection {
 
 /** Guided create-list flow (name → add multiple items via buttons). */
 export interface ListWorkflow {
-  state: 'awaiting_create_name' | 'adding_create_items';
+  state: 'awaiting_create_name' | 'adding_create_items' | 'editing_list' | 'editing_list_rename' | 'editing_list_reminder_time';
   listId?: string;
   listTitle?: string;
   itemCount?: number;
   /** User tapped "Add item" — next text is an item (not a new list name). */
   awaitingItemInput?: boolean;
+  /** Item being processed during edit sub-flow. */
+  editTargetItemId?: string;
+  /** Whether the edit sub-flow is adding items (reuses the add-items pattern). */
+  editAddingItems?: boolean;
+  /** Current edit action when picking an item: 'remove' | 'reminder'. */
+  editAction?: 'remove' | 'reminder';
 }
 
 @Injectable()

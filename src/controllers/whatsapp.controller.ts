@@ -466,9 +466,8 @@ export class WhatsappController {
       this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, localTime="${parsed.localTime || ''}"`);
 
       // ── Timezone check + time conversion ────────────────────────────────────
-      // If user hasn't set a timezone and asks for a reminder with a wall-clock time,
-      // save the message and ask for their city first.
-      if (parsed.actionType === 'create_reminder' && parsed.localTime && msgTimestamp) {
+      // Convert local wall-clock time to UTC for reminder/list actions
+      if (parsed.localTime && msgTimestamp) {
         if (user.timezone === 'UTC') {
           await this.userContextService.setPendingTimezoneMessage(user.id, message);
           const botMsg = `I see you want a reminder at ${parsed.localTime}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;

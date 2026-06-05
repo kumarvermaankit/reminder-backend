@@ -660,21 +660,41 @@ export class ListWorkflowService implements OnModuleInit {
     timezone: string,
   ): Date | null {
     const now = new Date();
-    const localNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    const localToday = new Date(
-      localNow.getFullYear(),
-      localNow.getMonth(),
-      localNow.getDate(),
-      parsedTime.hours,
-      parsedTime.minutes,
-      0,
-    );
-    const utcToday = new Date(localToday.toLocaleString('en-US', { timeZone: 'UTC' }));
-    if (utcToday > now) return utcToday;
-    // If time has passed today, schedule for tomorrow
-    const localTomorrow = new Date(localToday);
-    localTomorrow.setDate(localTomorrow.getDate() + 1);
-    return new Date(localTomorrow.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const localMin = parsedTime.hours * 60 + parsedTime.minutes;
+
+    // Get UTC offset in minutes for this timezone at the current time
+    let offsetMin = 0;
+    try {
+      const tzStr = now.toLocaleString('en-US', {
+        timeZone: timezone,
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+      const [datePart, timePart] = tzStr.split(', ');
+      const [m, d, y] = datePart.split('/');
+      const [h, mn, s] = timePart.split(':');
+      const tzDate = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
+      offsetMin = (tzDate.getTime() - now.getTime()) / 60000;
+    } catch {
+      offsetMin = 0;
+    }
+
+    // Convert local wall-clock time to UTC
+    const utcMin = (localMin - offsetMin + 1440) % 1440;
+
+    const utcDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      Math.floor(utcMin / 60),
+      utcMin % 60,
+    ));
+
+    if (utcDate <= now) {
+      utcDate.setDate(utcDate.getDate() + 1);
+    }
+    return utcDate;
   }
 
   private async runMenuAction(

@@ -493,7 +493,21 @@ export class ListWorkflowService implements OnModuleInit {
       return true;
     }
     if (rowId === MENU_ROW.ipoAlerts) {
-      const body = "📈 *IPO Deadline Alerts*\n\nI'll check daily and notify you when an IPO is closing soon!\n\nSay *\"remind me about IPO deadlines\"* or just type *\"IPO alerts\"* to start.";
+      const now = new Date();
+      const metadata = { type: 'ipo_alert' };
+      await this.reminderService.createReminder({
+        userId,
+        title: 'IPO Deadline Alerts',
+        description: 'Daily IPO deadline check',
+        reminderDate: new Date(now.getTime() + 5 * 1000),
+        isCompleted: false,
+        isPersistent: true,
+        reminderInterval: 1440,
+        maxReminderCount: 0,
+        reminderCount: 0,
+        metadata,
+      });
+      const body = "📈 *IPO Alerts Activated!*\n\nI'll check daily and notify you when an IPO is closing soon. Say \"done\" to stop alerts.";
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;

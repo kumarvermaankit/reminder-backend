@@ -41,7 +41,7 @@ export class SimpleAiService {
           response: 'llama-3.3-70b-versatile',
           completion: 'llama-3.3-70b-versatile'
         },
-        priority: 1,
+        priority: 5,
         costPerRequest: 0.000
       });
     }
@@ -57,7 +57,7 @@ export class SimpleAiService {
           response: 'meta-llama/Llama-3-8b-chat-hf',
           completion: 'meta-llama/Llama-3-8b-chat-hf'
         },
-        priority: 2,
+        priority: 4,
         costPerRequest: 0.0008
       });
     }
@@ -89,7 +89,7 @@ export class SimpleAiService {
           response: 'deepseek-chat',
           completion: 'deepseek-chat'
         },
-        priority: 0.5,
+        priority: 2,
         costPerRequest: 0.000
       });
     }
@@ -105,7 +105,7 @@ export class SimpleAiService {
           response: 'gemini-1.5-flash',
           completion: 'gemini-1.5-flash'
         },
-        priority: 0.1,
+        priority: 1,
         costPerRequest: 0.001
       });
     }
@@ -118,8 +118,8 @@ export class SimpleAiService {
     this.logger.log('DEEPSEEK_API_KEY:', deepseekApiKey ? 'FOUND' : 'NOT FOUND');
     this.logger.log('GEMINI_API_KEY:', geminiApiKey ? 'FOUND' : 'NOT FOUND');
 
-    // Sort by priority
-    this.providers.sort((a, b) => a.priority - b.priority);
+    // Sort by priority (descending — higher = tried first)
+    this.providers.sort((a, b) => b.priority - a.priority);
     this.logger.log(`Initialized ${this.providers.length} AI providers`);
     
     // Debug: List available Gemini models

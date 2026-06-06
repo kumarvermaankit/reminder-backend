@@ -4,7 +4,9 @@ export const MENU_ROW = {
   createList: 'menu_create_list',
   editList: 'menu_edit_list',
   createReminder: 'menu_create_reminder',
+  showReminders: 'menu_show_reminders',
   createNote: 'menu_create_note',
+  showNotes: 'menu_show_notes',
   currentIpo: 'menu_current_ipo',
   upcomingIpo: 'menu_upcoming_ipo',
   openList: (listId: string) => `list_open:${listId}`,
@@ -23,12 +25,14 @@ export function getMenuSections() {
       title: '⏰ Reminders',
       rows: [
         { id: MENU_ROW.createReminder, title: 'Create reminder', description: 'Set a one-time or recurring reminder' },
+        { id: MENU_ROW.showReminders, title: 'Show reminders', description: 'View your pending reminders' },
       ],
     },
     {
       title: '📝 Notes',
       rows: [
         { id: MENU_ROW.createNote, title: 'Save a note', description: 'Store info like email, PAN, address' },
+        { id: MENU_ROW.showNotes, title: 'Show notes', description: 'Retrieve a saved note' },
       ],
     },
     {

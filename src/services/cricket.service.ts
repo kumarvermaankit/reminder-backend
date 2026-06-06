@@ -73,43 +73,56 @@ export class CricketService {
     const now = Date.now();
 
     for (const entry of raw) {
-      const seriesMatches = entry.seriesMatches || [];
-      for (const sm of seriesMatches) {
-        const wrapper = sm.seriesAdWrapper || sm;
-        const matches = wrapper.matches || [];
-        for (const m of matches) {
-          const match = m.match || m;
-          const info = match.matchInfo || {};
-          const score = match.matchScore || {};
-          const s1 = score.team1Score?.inngs1;
-          const s2 = score.team2Score?.inngs1;
+      // Try new flat structure: [{ match: { matchInfo, matchScore } }]
+      let matchObj = entry.match || entry;
+      let info = matchObj.matchInfo || {};
+      let score = matchObj.matchScore || {};
 
-          // Skip old completed matches (more than 6h ago)
-          const startDate = parseInt(info.startDate, 10);
-          if (info.state === 'Complete' && startDate && (now - startDate) > 21600000) continue;
-
-          const t1 = info.team1?.teamSName || info.team1?.teamName || 'T1';
-          const t2 = info.team2?.teamSName || info.team2?.teamName || 'T2';
-
-          const fmt = (s: any) =>
-            s ? `${s.runs || 0}/${s.wkts || 0} (${s.overs || 0} ov)` : '';
-
-          const parts = [fmt(s1), fmt(s2)].filter(Boolean);
-          const scoreStr = parts.length > 0 ? parts.join(' & ') : '';
-
-          let status = info.status || info.state || '';
-          if (status === 'In Progress') status = '🔴 Live';
-          else if (status === 'Complete') status = '✅ Completed';
-          else if (status === 'Toss') status = '🔄 Toss about to start';
-
-          result.push({
-            id: String(info.matchId || ''),
-            title: `${t1} vs ${t2}${info.matchDesc ? `, ${info.matchDesc}` : ''}`,
-            score: scoreStr,
-            status,
-          });
+      // Try old nested structure: [{ seriesMatches: [{ seriesAdWrapper: { matches: [{ match: {...} }] } }] }]
+      if (!info.matchId) {
+        const seriesMatches = entry.seriesMatches || [];
+        for (const sm of seriesMatches) {
+          const wrapper = sm.seriesAdWrapper || sm;
+          const matches = wrapper.matches || [];
+          for (const m of matches) {
+            matchObj = m.match || m;
+            info = matchObj.matchInfo || {};
+            score = matchObj.matchScore || {};
+            if (info.matchId) break;
+          }
+          if (info.matchId) break;
         }
       }
+
+      if (!info.matchId) continue;
+
+      const s1 = score.team1Score?.inngs1;
+      const s2 = score.team2Score?.inngs1;
+
+      // Skip old completed matches (more than 6h ago)
+      const startDate = parseInt(info.startDate, 10);
+      if (info.state === 'Complete' && startDate && (now - startDate) > 21600000) continue;
+
+      const t1 = info.team1?.teamSName || info.team1?.teamName || 'T1';
+      const t2 = info.team2?.teamSName || info.team2?.teamName || 'T2';
+
+      const fmt = (s: any) =>
+        s ? `${s.runs || 0}/${s.wkts || 0} (${s.overs || 0} ov)` : '';
+
+      const parts = [fmt(s1), fmt(s2)].filter(Boolean);
+      const scoreStr = parts.length > 0 ? parts.join(' & ') : '';
+
+      let status = info.status || info.state || '';
+      if (status === 'In Progress') status = '🔴 Live';
+      else if (status === 'Complete') status = '✅ Completed';
+      else if (status === 'Toss') status = '🔄 Toss about to start';
+
+      result.push({
+        id: String(info.matchId || ''),
+        title: `${t1} vs ${t2}${info.matchDesc ? `, ${info.matchDesc}` : ''}`,
+        score: scoreStr,
+        status,
+      });
     }
     return result;
   }

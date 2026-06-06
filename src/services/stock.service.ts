@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import yahooFinance from 'yahoo-finance2';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+
+// yahoo-finance2 v3 is ESM-only; CommonJS require wraps it in { default: Class }
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const YahooFinanceClass = require('yahoo-finance2').default;
 
 export interface StockQuote {
   symbol: string;
@@ -86,15 +89,20 @@ const COMPANY_MAP: Record<string, string> = {
 };
 
 @Injectable()
-export class StockService {
+export class StockService implements OnModuleInit {
   private readonly logger = new Logger(StockService.name);
+  private yf: any;
+
+  onModuleInit() {
+    this.yf = new YahooFinanceClass();
+  }
 
   async getQuote(query: string): Promise<StockQuote | null> {
     const symbol = this.resolveSymbol(query);
     if (!symbol) {
       // Try yahoo search as fallback for unknown company names
       try {
-        const searchRes: any = await yahooFinance.search(query, { quotesCount: 5, newsCount: 0 });
+        const searchRes: any = await this.yf.search(query, { quotesCount: 5, newsCount: 0 });
         if (searchRes.quotes && searchRes.quotes.length > 0) {
           const best = searchRes.quotes[0];
           if ((best.exchange === 'NSI' || best.exchange === 'BSE' || best.isYahooFinance) && best.symbol) {
@@ -111,7 +119,7 @@ export class StockService {
 
   private async fetchQuote(symbol: string, fallbackName: string): Promise<StockQuote | null> {
     try {
-      const result: any = await yahooFinance.quote(symbol);
+      const result: any = await this.yf.quote(symbol);
       if (!result || !result.regularMarketPrice) return null;
       return {
         symbol: result.symbol || symbol,
@@ -134,7 +142,7 @@ export class StockService {
     const symbols = queries.map(q => this.resolveSymbol(q)).filter(Boolean) as string[];
     if (symbols.length === 0) return [];
     try {
-      const results: any = await yahooFinance.quote(symbols);
+      const results: any = await this.yf.quote(symbols);
       const arr = Array.isArray(results) ? results : [results];
       return arr
         .filter((r: any) => r && r.regularMarketPrice)

@@ -101,9 +101,9 @@ export class SimpleAiService {
         name: 'gemini',
         client: new GoogleGenerativeAI(geminiApiKey),
         models: {
-          parsing: 'gemini-3-flash-preview',
-          response: 'gemini-3-flash-preview',
-          completion: 'gemini-3-flash-preview'
+          parsing: 'gemini-1.5-flash',
+          response: 'gemini-1.5-flash',
+          completion: 'gemini-1.5-flash'
         },
         priority: 0.1,
         costPerRequest: 0.001
@@ -127,38 +127,7 @@ export class SimpleAiService {
   }
 
   private async listGeminiModels() {
-    const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
-    const genAI = new GoogleGenerativeAI(process.env.API_KEY);
-    const customerModels = await genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
-    console.log(customerModels);
-    // if (geminiApiKey) {
-    //   try {
-    //     // Try to make a simple API call to see what models are available
-    //     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    //     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-    //     this.logger.log('Testing Gemini Pro model availability...');
-        
-    //     // Simple test to see if the model works
-    //     const result = await model.generateContent('Test');
-    //     this.logger.log('Gemini Pro model is available and working');
-    //   } catch (error) {
-    //     this.logger.error('Gemini Pro model test failed:', error.message);
-        
-    //     // Try alternative models
-    //     const alternativeModels = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro-vision'];
-    //     for (const modelName of alternativeModels) {
-    //       try {
-    //         const genAI = new GoogleGenerativeAI(geminiApiKey);
-    //         const model = genAI.getGenerativeModel({ model: modelName });
-    //         await model.generateContent('Test');
-    //         this.logger.log(`✅ ${modelName} is available!`);
-    //         break;
-    //       } catch (err) {
-    //         this.logger.log(`❌ ${modelName} failed: ${err.message}`);
-    //       }
-    //     }
-    //   }
-    // }
+    // Remove broken model listing call — it used wrong API key and invalid method
   }
 
   private async selectProvider(): Promise<AIProvider | null> {

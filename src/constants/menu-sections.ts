@@ -4,10 +4,7 @@ export const MENU_ROW = {
   createList: 'menu_create_list',
   editList: 'menu_edit_list',
   createReminder: 'menu_create_reminder',
-  showReminders: 'menu_show_reminders',
   createNote: 'menu_create_note',
-  showNotes: 'menu_show_notes',
-  help: 'menu_help',
   currentIpo: 'menu_current_ipo',
   upcomingIpo: 'menu_upcoming_ipo',
   openList: (listId: string) => `list_open:${listId}`,
@@ -26,14 +23,12 @@ export function getMenuSections() {
       title: '⏰ Reminders',
       rows: [
         { id: MENU_ROW.createReminder, title: 'Create reminder', description: 'Set a one-time or recurring reminder' },
-        { id: MENU_ROW.showReminders, title: 'Show reminders', description: 'View your pending reminders' },
       ],
     },
     {
       title: '📝 Notes',
       rows: [
         { id: MENU_ROW.createNote, title: 'Save a note', description: 'Store info like email, PAN, address' },
-        { id: MENU_ROW.showNotes, title: 'Show notes', description: 'Retrieve a saved note' },
       ],
     },
     {
@@ -50,7 +45,6 @@ export function getMenuSections() {
         { id: MENU_ROW.viewList, title: "Today's list", description: 'View daily to-do' },
         { id: MENU_ROW.allLists, title: 'All lists', description: 'Browse your lists' },
         { id: MENU_ROW.editList, title: 'Edit a list', description: 'Rename, add/remove items, attach reminders' },
-        { id: MENU_ROW.help, title: 'Help', description: 'Tips & commands' },
       ],
     },
   ];

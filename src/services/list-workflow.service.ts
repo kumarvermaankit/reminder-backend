@@ -474,26 +474,10 @@ export class ListWorkflowService implements OnModuleInit {
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
-    if (rowId === MENU_ROW.showReminders) {
-      const body = "⏰ *Your reminders*\n\nSay *\"show my reminders\"* and I'll list all your pending reminders!";
-      await this.whatsappService.sendWithMenu(userPhone, body);
-      await this.userContextService.pushMessage(userId, 'assistant', body);
-      return true;
-    }
     if (rowId === MENU_ROW.createNote) {
       const body = "📝 *Save a note*\n\nTell me what to remember.\n\nExample: \"remember my email is abc@xyz.com\" or \"my address is 123 Main St\"";
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
-      return true;
-    }
-    if (rowId === MENU_ROW.showNotes) {
-      const body = "📝 *Find a note*\n\nAsk me what you want to retrieve.\n\nExample: \"what is my pan number?\" or \"show my notes\"";
-      await this.whatsappService.sendWithMenu(userPhone, body);
-      await this.userContextService.pushMessage(userId, 'assistant', body);
-      return true;
-    }
-    if (rowId === MENU_ROW.help) {
-      await this.runMenuAction('help', userPhone, userId, timezone);
       return true;
     }
     if (rowId === MENU_ROW.currentIpo) {

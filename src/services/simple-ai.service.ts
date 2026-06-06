@@ -20,6 +20,24 @@ interface AIProvider {
   costPerRequest: number;
 }
 
+type ProviderName = 'groq' | 'together' | 'replicate' | 'deepseek' | 'gemini';
+
+const DEFAULT_PRIORITY: Record<ProviderName, number> = {
+  groq: 5,
+  together: 4,
+  replicate: 3,
+  deepseek: 2,
+  gemini: 1,
+};
+
+const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; completion: string }> = {
+  groq: { parsing: 'llama-3.3-70b-versatile', response: 'llama-3.3-70b-versatile', completion: 'llama-3.3-70b-versatile' },
+  together: { parsing: 'meta-llama/Llama-3-8b-chat-hf', response: 'meta-llama/Llama-3-8b-chat-hf', completion: 'meta-llama/Llama-3-8b-chat-hf' },
+  replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
+  deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
+  gemini: { parsing: 'gemini-1.5-flash', response: 'gemini-1.5-flash', completion: 'gemini-1.5-flash' },
+};
+
 @Injectable()
 export class SimpleAiService {
   private readonly logger = new Logger(SimpleAiService.name);
@@ -30,108 +48,104 @@ export class SimpleAiService {
   }
 
   private initializeProviders() {
-    // Groq - First priority (free tier)
-    const groqApiKey = this.configService.get<string>('GROQ_API_KEY');
-    if (groqApiKey) {
-      this.providers.push({
+    const factories: { name: ProviderName; apiKey: string | undefined; build: () => AIProvider }[] = [
+      {
         name: 'groq',
-        client: new Groq({ apiKey: groqApiKey }),
-        models: {
-          parsing: 'llama-3.3-70b-versatile',
-          response: 'llama-3.3-70b-versatile',
-          completion: 'llama-3.3-70b-versatile'
-        },
-        priority: 5,
-        costPerRequest: 0.000
-      });
-    }
-
-    // Together AI - Second priority (free tier)
-    const togetherApiKey = this.configService.get<string>('TOGETHER_API_KEY');
-    if (togetherApiKey) {
-      this.providers.push({
+        apiKey: this.configService.get<string>('GROQ_API_KEY'),
+        build: () => ({
+          name: 'groq',
+          client: new Groq({ apiKey: factories[0].apiKey }),
+          models: this.resolveModels('groq'),
+          priority: 0,
+          costPerRequest: 0.000,
+        }),
+      },
+      {
         name: 'together',
-        client: new Together({ apiKey: togetherApiKey }),
-        models: {
-          parsing: 'meta-llama/Llama-3-8b-chat-hf',
-          response: 'meta-llama/Llama-3-8b-chat-hf',
-          completion: 'meta-llama/Llama-3-8b-chat-hf'
-        },
-        priority: 4,
-        costPerRequest: 0.0008
-      });
-    }
-
-    // Replicate - Third priority (free credits)
-    const replicateApiToken = this.configService.get<string>('REPLICATE_API_TOKEN');
-    if (replicateApiToken) {
-      this.providers.push({
+        apiKey: this.configService.get<string>('TOGETHER_API_KEY'),
+        build: () => ({
+          name: 'together',
+          client: new Together({ apiKey: factories[1].apiKey }),
+          models: this.resolveModels('together'),
+          priority: 0,
+          costPerRequest: 0.0008,
+        }),
+      },
+      {
         name: 'replicate',
-        client: new Replicate({ auth: replicateApiToken }),
-        models: {
-          parsing: 'meta/meta-llama-3-8b-instruct',
-          response: 'meta/meta-llama-3-8b-instruct',
-          completion: 'meta/meta-llama-3-8b-instruct'
-        },
-        priority: 3,
-        costPerRequest: 0.001
-      });
-    }
-
-    // DeepSeek - Fourth priority (free trial credits, OpenAI-compatible)
-    const deepseekApiKey = this.configService.get<string>('DEEPSEEK_API_KEY');
-    if (deepseekApiKey) {
-      this.providers.push({
+        apiKey: this.configService.get<string>('REPLICATE_API_TOKEN'),
+        build: () => ({
+          name: 'replicate',
+          client: new Replicate({ auth: factories[2].apiKey }),
+          models: this.resolveModels('replicate'),
+          priority: 0,
+          costPerRequest: 0.001,
+        }),
+      },
+      {
         name: 'deepseek',
-        client: new OpenAI({ apiKey: deepseekApiKey, baseURL: 'https://api.deepseek.com/v1' }),
-        models: {
-          parsing: 'deepseek-chat',
-          response: 'deepseek-chat',
-          completion: 'deepseek-chat'
-        },
-        priority: 2,
-        costPerRequest: 0.000
-      });
-    }
-
-    // Google Gemini - Final fallback (paid)
-    const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
-    if (geminiApiKey) {
-      this.providers.push({
+        apiKey: this.configService.get<string>('DEEPSEEK_API_KEY'),
+        build: () => ({
+          name: 'deepseek',
+          client: new OpenAI({ apiKey: factories[3].apiKey, baseURL: 'https://api.deepseek.com/v1' }),
+          models: this.resolveModels('deepseek'),
+          priority: 0,
+          costPerRequest: 0.000,
+        }),
+      },
+      {
         name: 'gemini',
-        client: new GoogleGenerativeAI(geminiApiKey),
-        models: {
-          parsing: 'gemini-1.5-flash',
-          response: 'gemini-1.5-flash',
-          completion: 'gemini-1.5-flash'
-        },
-        priority: 1,
-        costPerRequest: 0.001
-      });
+        apiKey: this.configService.get<string>('GEMINI_API_KEY'),
+        build: () => ({
+          name: 'gemini',
+          client: new GoogleGenerativeAI(factories[4].apiKey!),
+          models: this.resolveModels('gemini'),
+          priority: 0,
+          costPerRequest: 0.001,
+        }),
+      },
+    ];
+
+    // Build providers that have an API key
+    for (const f of factories) {
+      if (f.apiKey) {
+        this.providers.push(f.build());
+        this.logger.log(`${f.name.toUpperCase()}_API_KEY: FOUND`);
+      } else {
+        this.logger.log(`${f.name.toUpperCase()}_API_KEY: NOT FOUND`);
+      }
     }
 
-    // Add debug logging
-    this.logger.log('Checking API keys:');
-    this.logger.log('GROQ_API_KEY:', groqApiKey ? 'FOUND' : 'NOT FOUND');
-    this.logger.log('TOGETHER_API_KEY:', togetherApiKey ? 'FOUND' : 'NOT FOUND');
-    this.logger.log('REPLICATE_API_TOKEN:', replicateApiToken ? 'FOUND' : 'NOT FOUND');
-    this.logger.log('DEEPSEEK_API_KEY:', deepseekApiKey ? 'FOUND' : 'NOT FOUND');
-    this.logger.log('GEMINI_API_KEY:', geminiApiKey ? 'FOUND' : 'NOT FOUND');
+    // Sort by AI_PROVIDER_ORDER env var, or fall back to DEFAULT_PRIORITY
+    const orderRaw = this.configService.get<string>('AI_PROVIDER_ORDER') || '';
+    if (orderRaw) {
+      const order = orderRaw.toLowerCase().split(',').map(s => s.trim()) as ProviderName[];
+      const rank = Object.fromEntries(order.map((name, i) => [name, order.length - i]));
+      for (const p of this.providers) {
+        p.priority = rank[p.name] ?? 0;
+      }
+      this.logger.log(`AI_PROVIDER_ORDER=${orderRaw}`);
+    } else {
+      for (const p of this.providers) {
+        p.priority = DEFAULT_PRIORITY[p.name as ProviderName] ?? 0;
+      }
+    }
 
-    // Sort by priority (descending — higher = tried first)
     this.providers.sort((a, b) => b.priority - a.priority);
-    this.logger.log(`Initialized ${this.providers.length} AI providers`);
-    
-    // Debug: List available Gemini models
-    this.listGeminiModels();
+    this.logger.log(`Initialized ${this.providers.length} AI providers: ${this.providers.map(p => p.name).join(' → ')}`);
   }
 
-  private async listGeminiModels() {
-    // Remove broken model listing call — it used wrong API key and invalid method
+  private resolveModels(name: ProviderName): { parsing: string; response: string; completion: string } {
+    const prefix = `AI_${name.toUpperCase()}_MODEL`;
+    const env = this.configService.get<string>(prefix);
+    if (env) {
+      this.logger.log(`${prefix}=${env}`);
+      return { parsing: env, response: env, completion: env };
+    }
+    return DEFAULT_MODELS[name];
   }
 
   private async selectProvider(): Promise<AIProvider | null> {
-    // Simple selection - just return the first available provider
     return this.providers.length > 0 ? this.providers[0] : null;
   }
 
@@ -236,7 +250,6 @@ export class SimpleAiService {
   }
 
   async suggestReminders(userId: string): Promise<string[]> {
-    // Static suggestions (free!)
     return [
       "Take medication",
       "Drink water",
@@ -260,22 +273,12 @@ export class SimpleAiService {
     }));
   }
 
-  
-  // Provider-specific methods
-  /**
-   * Infer the user's UTC offset (in minutes) from a raw local time string + msgTimestamp.
-   * Tries each standard offset; the correct offset is the one where the resulting
-   * UTC time is in the future AND the implied local "now" (msgTimestamp + offset)
-   * falls within waking hours (7am – 11pm local).
-   */
-
   /**
    * Parse a local time string like "5:05 PM", "9am", "15:15", "4:50 pm".
    * Returns { hours, minutes } in 24h format, or null on failure.
    */
   private parseLocalTime(input: string): { hours: number; minutes: number } | null {
     const s = input.trim().toLowerCase();
-    // Allow trailing text after time (e.g. "7am tomorrow", "5:15 PM here")
     const amPmMatch = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
     if (amPmMatch) {
       let h = parseInt(amPmMatch[1], 10);
@@ -374,14 +377,12 @@ RULES:
     const response = await model.generateContent(prompt);
     let content = response.response.text();
     
-    // Remove markdown code blocks if present
     if (content.includes('```json')) {
       content = content.replace(/```json\s*/, '').replace(/```\s*$/, '');
     } else if (content.includes('```')) {
       content = content.replace(/```\s*/, '').replace(/```\s*$/, '');
     }
     
-    // Clean up any extra whitespace
     content = content.trim();
     
     const parsed = JSON.parse(content);
@@ -395,7 +396,7 @@ RULES:
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"` }
+        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -437,7 +438,6 @@ RULES:
     });
 
     const content = Array.isArray(response) ? response.join('') : String(response);
-    // Extract JSON from the response (handle markdown code blocks)
     const jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithReplicate raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
@@ -473,7 +473,6 @@ RULES:
     const response = await model.generateContent(fullPrompt);
     let content = response.response.text();
     
-    // Remove markdown code blocks if present
     if (content.includes('```')) {
       content = content.replace(/```\s*/, '').replace(/```\s*$/, '');
     }
@@ -553,14 +552,12 @@ Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_c
     const response = await model.generateContent(prompt);
     let content = response.response.text();
     
-    // Remove markdown code blocks if present
     if (content.includes('```json')) {
       content = content.replace(/```json\s*/, '').replace(/```\s*$/, '');
     } else if (content.includes('```')) {
       content = content.replace(/```\s*/, '').replace(/```\s*$/, '');
     }
     
-    // Clean up any extra whitespace
     content = content.trim();
     
     return content ? JSON.parse(content) : { completed: false, response: "Got it!" };

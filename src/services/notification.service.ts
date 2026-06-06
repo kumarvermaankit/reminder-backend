@@ -116,6 +116,10 @@ ${this.stockService.formatQuote(quote)}${triggered}`;
         ? await this.cricketService.searchMatch(meta.matchQuery)
         : matches[0];
       if (!match) return `${this.greeting(userName)} 🏏 No live matches right now.`;
+      const detailed = await this.cricketService.getDetailedMatch(match.id);
+      if (detailed && detailed.batsmanStriker) {
+        return `${this.greeting(userName)}\n${this.cricketService.formatDetailedMatch(detailed)}`;
+      }
       return `${this.greeting(userName)} 🏏 *${match.title}*
 📊 ${match.score}
 _${match.status}_`;

@@ -8,6 +8,8 @@ export const MENU_ROW = {
   createNote: 'menu_create_note',
   showNotes: 'menu_show_notes',
   help: 'menu_help',
+  currentIpo: 'menu_current_ipo',
+  upcomingIpo: 'menu_upcoming_ipo',
   openList: (listId: string) => `list_open:${listId}`,
   editListOpen: (listId: string) => `edit_list_open:${listId}`,
   editRename: 'edit_rename',
@@ -32,6 +34,13 @@ export function getMenuSections() {
       rows: [
         { id: MENU_ROW.createNote, title: 'Save a note', description: 'Store info like email, PAN, address' },
         { id: MENU_ROW.showNotes, title: 'Show notes', description: 'Retrieve a saved note' },
+      ],
+    },
+    {
+      title: '📈 IPOs',
+      rows: [
+        { id: MENU_ROW.currentIpo, title: 'Current IPOs', description: 'Open IPOs accepting applications' },
+        { id: MENU_ROW.upcomingIpo, title: 'Upcoming IPOs', description: 'IPOs coming soon' },
       ],
     },
     {

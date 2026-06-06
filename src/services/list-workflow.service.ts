@@ -496,6 +496,18 @@ export class ListWorkflowService implements OnModuleInit {
       await this.runMenuAction('help', userPhone, userId, timezone);
       return true;
     }
+    if (rowId === MENU_ROW.currentIpo) {
+      const body = "📈 *Current IPOs*\n\nSay *\"current IPOs\"* to see open IPOs accepting applications.";
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.upcomingIpo) {
+      const body = "📈 *Upcoming IPOs*\n\nSay *\"upcoming IPOs\"* to see IPOs launching soon.";
+      await this.whatsappService.sendWithMenu(userPhone, body);
+      await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
     if (rowId === MENU_ROW.editList) {
       await this.sendEditListPicker(userPhone, userId);
       return true;

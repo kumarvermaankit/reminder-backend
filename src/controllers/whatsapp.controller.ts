@@ -11,6 +11,7 @@ import { TodoListService } from '../services/todo-list.service';
 import { ListWorkflowService } from '../services/list-workflow.service';
 import { StockService } from '../services/stock.service';
 import { CricketService } from '../services/cricket.service';
+import { IpoService } from '../services/ipo.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 
@@ -31,6 +32,7 @@ export class WhatsappController {
     private readonly listWorkflowService: ListWorkflowService,
     private readonly stockService: StockService,
     private readonly cricketService: CricketService,
+    private readonly ipoService: IpoService,
   ) {}
 
   @Post('webhook')
@@ -555,6 +557,9 @@ export class WhatsappController {
         case 'check_cricket':
           botResponse = await this.handleCheckCricket(parsed);
           break;
+        case 'check_ipo':
+          botResponse = await this.handleCheckIpo(parsed);
+          break;
         case 'stock_alert':
           botResponse = await this.handleStockAlert(parsed, user, msgTimestamp);
           break;
@@ -1000,11 +1005,46 @@ export class WhatsappController {
     if (matches.length === 0) return "No live matches right now. Check back later! 🏏";
     if (query) {
       const match = await this.cricketService.searchMatch(query);
-      if (match) return this.cricketService.formatMatch(match);
+      if (match) {
+        const detailed = await this.cricketService.getDetailedMatch(match.id);
+        if (detailed && detailed.batsmanStriker) return this.cricketService.formatDetailedMatch(detailed);
+        return this.cricketService.formatMatch(match);
+      }
       return `I couldn't find a match matching "${query}". Here are all live matches:\n\n${matches.map(m => this.cricketService.formatMatchBrief(m)).join('\n\n')}`;
     }
-    if (matches.length === 1) return this.cricketService.formatMatch(matches[0]);
+    if (matches.length === 1) {
+      const detailed = await this.cricketService.getDetailedMatch(matches[0].id);
+      if (detailed && detailed.batsmanStriker) return this.cricketService.formatDetailedMatch(detailed);
+      return this.cricketService.formatMatch(matches[0]);
+    }
     return `*Live Matches:*\n\n${matches.map(m => this.cricketService.formatMatchBrief(m)).join('\n\n')}`;
+  }
+
+  private async handleCheckIpo(parsed: any): Promise<string> {
+    const query = (parsed.matchQuery || '').toLowerCase();
+    if (query && !['current', 'upcoming', 'mainboard', 'sme'].includes(query)) {
+      const results = await this.ipoService.searchIPO(query);
+      if (results.length > 0) {
+        return results.map(r => this.ipoService.formatIpo(r)).join('\n\n');
+      }
+      return `I couldn't find an IPO matching "${query}". Try asking for "current IPOs" or "upcoming IPOs".`;
+    }
+    if (query === 'upcoming') {
+      const ipos = await this.ipoService.getUpcomingIPOs();
+      const mainboard = ipos.filter(i => i.type === 'mainboard' || i.type === 'filed');
+      const sme = ipos.filter(i => i.type === 'sme');
+      const parts: string[] = [];
+      if (mainboard.length > 0) parts.push(this.ipoService.formatIpoList(mainboard, 'Upcoming Mainboard IPOs'));
+      if (sme.length > 0) parts.push(this.ipoService.formatIpoList(sme, 'Upcoming SME IPOs'));
+      return parts.length > 0 ? parts.join('\n\n---\n\n') : 'No upcoming IPOs found.';
+    }
+    const ipos = await this.ipoService.getCurrentIPOs();
+    const mainboard = ipos.filter(i => i.type === 'mainboard');
+    const sme = ipos.filter(i => i.type === 'sme');
+    const parts: string[] = [];
+    if (mainboard.length > 0) parts.push(this.ipoService.formatIpoList(mainboard, 'Current / Open IPOs'));
+    if (sme.length > 0) parts.push(this.ipoService.formatIpoList(sme, 'Current SME IPOs'));
+    return parts.length > 0 ? parts.join('\n\n---\n\n') : 'No current IPOs available.';
   }
 
   private async handleStockAlert(parsed: any, user: any, msgTimestamp?: Date): Promise<string> {

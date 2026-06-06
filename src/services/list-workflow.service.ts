@@ -493,7 +493,7 @@ export class ListWorkflowService implements OnModuleInit {
       return true;
     }
     if (rowId === MENU_ROW.ipoAlerts) {
-      const body = "📈 *IPO Deadline Alerts*\n\nSay *\"remind me about IPO deadlines\"* and I'll check daily and notify you when an IPO is closing soon!";
+      const body = "📈 *IPO Deadline Alerts*\n\nI'll check daily and notify you when an IPO is closing soon!\n\nSay *\"remind me about IPO deadlines\"* or just type *\"IPO alerts\"* to start.";
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;

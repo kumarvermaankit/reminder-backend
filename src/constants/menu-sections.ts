@@ -37,7 +37,7 @@ export function getMenuSections() {
     {
       title: '📈 IPOs',
       rows: [
-        { id: MENU_ROW.ipoAlerts, title: 'Remind me about IPO deadlines', description: 'Get notified when IPOs are closing soon' },
+        { id: MENU_ROW.ipoAlerts, title: 'Get IPO deadline alerts', description: 'Get notified when IPOs are closing soon' },
       ],
     },
     {

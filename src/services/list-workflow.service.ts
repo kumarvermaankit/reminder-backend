@@ -492,14 +492,8 @@ export class ListWorkflowService implements OnModuleInit {
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;
     }
-    if (rowId === MENU_ROW.currentIpo) {
-      const body = "📈 *Current IPOs*\n\nSay *\"current IPOs\"* to see open IPOs accepting applications.";
-      await this.whatsappService.sendWithMenu(userPhone, body);
-      await this.userContextService.pushMessage(userId, 'assistant', body);
-      return true;
-    }
-    if (rowId === MENU_ROW.upcomingIpo) {
-      const body = "📈 *Upcoming IPOs*\n\nSay *\"upcoming IPOs\"* to see IPOs launching soon.";
+    if (rowId === MENU_ROW.ipoAlerts) {
+      const body = "📈 *IPO Deadline Alerts*\n\nSay *\"remind me about IPO deadlines\"* and I'll check daily and notify you when an IPO is closing soon!";
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;

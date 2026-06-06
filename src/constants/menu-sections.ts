@@ -7,8 +7,7 @@ export const MENU_ROW = {
   showReminders: 'menu_show_reminders',
   createNote: 'menu_create_note',
   showNotes: 'menu_show_notes',
-  currentIpo: 'menu_current_ipo',
-  upcomingIpo: 'menu_upcoming_ipo',
+  ipoAlerts: 'menu_ipo_alerts',
   openList: (listId: string) => `list_open:${listId}`,
   editListOpen: (listId: string) => `edit_list_open:${listId}`,
   editRename: 'edit_rename',
@@ -38,8 +37,7 @@ export function getMenuSections() {
     {
       title: '📈 IPOs',
       rows: [
-        { id: MENU_ROW.currentIpo, title: 'Current IPOs', description: 'Open IPOs accepting applications' },
-        { id: MENU_ROW.upcomingIpo, title: 'Upcoming IPOs', description: 'IPOs coming soon' },
+        { id: MENU_ROW.ipoAlerts, title: 'Remind me about IPO deadlines', description: 'Get notified when IPOs are closing soon' },
       ],
     },
     {

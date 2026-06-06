@@ -4,6 +4,7 @@ import { UserService } from './user.service';
 import { TodoListService } from './todo-list.service';
 import { StockService } from './stock.service';
 import { CricketService } from './cricket.service';
+import { IpoService } from './ipo.service';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { User } from '../entities/user.entity';
 
@@ -17,6 +18,7 @@ export class NotificationService {
     private readonly todoListService: TodoListService,
     private readonly stockService: StockService,
     private readonly cricketService: CricketService,
+    private readonly ipoService: IpoService,
   ) {}
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
@@ -123,6 +125,44 @@ ${this.stockService.formatQuote(quote)}${triggered}`;
       return `${this.greeting(userName)} 🏏 *${match.title}*
 📊 ${match.score}
 _${match.status}_`;
+    }
+    // Inline live data for IPO deadline alerts
+    if (meta.type === 'ipo_alert') {
+      const ipos = await this.ipoService.getCurrentIPOs();
+      const MONTHS: Record<string, number> = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+      const parseCloseDate = (dateStr: string): Date | null => {
+        const parts = dateStr.match(/(\d+)\s*(June|July|May|April|March|January|February|August|September|October|November|December)/i);
+        if (!parts) return null;
+        const day = parseInt(parts[1], 10);
+        const month = MONTHS[parts[2].toLowerCase()];
+        if (month === undefined) return null;
+        return new Date(new Date().getFullYear(), month, day, 23, 59, 59);
+      };
+      const closing = ipos.filter(i => {
+        const closeDate = parseCloseDate(i.date.split('-').pop()?.trim() || '');
+        if (!closeDate) return false;
+        const diff = closeDate.getTime() - Date.now();
+        return diff > 0 && diff <= 86400000 * 2;
+      });
+      if (closing.length === 0) {
+        const open = ipos.filter(i => {
+          const closeDate = parseCloseDate(i.date.split('-').pop()?.trim() || '');
+          return closeDate && closeDate.getTime() > Date.now();
+        }).slice(0, 3);
+        let msg = `${this.greeting(userName)} 📈 *IPO Deadline Check*\n\n`;
+        if (open.length > 0) {
+          msg += `No IPOs closing today. Here are the open IPOs:\n\n`;
+          msg += open.map(i => `• *${i.name}* — closes ${i.date}\n  ${i.size} | ${i.priceBand || 'N/A'}`).join('\n\n');
+        } else {
+          msg += `No IPOs are currently open for application.\n\nSay *"current IPOs"* or *"upcoming IPOs"* to browse.`;
+        }
+        return msg;
+      }
+      let msg = `${this.greeting(userName)} 🚨 *IPO Closing Soon!*\n\n`;
+      msg += `The following IPO${closing.length > 1 ? 's are' : ' is'} closing today/tomorrow — don't miss out!\n\n`;
+      msg += closing.map(i => `• *${i.name}* — closes ${i.date}\n  ${i.size} | ${i.priceBand || 'N/A'}`).join('\n\n');
+      msg += `\n\nApply before it closes! Say "done" to stop IPO alerts.`;
+      return msg;
     }
     // Normal reminders — show list context if linked to a todo item
     if (reminder.todoItemId) {

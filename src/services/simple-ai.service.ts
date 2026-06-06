@@ -322,6 +322,7 @@ export class SimpleAiService {
     - "current IPOs" or "show me IPOs" → actionType=check_ipo
     - "upcoming IPOs" → actionType=check_ipo, matchQuery="upcoming"
     - "Hexagon Nutrition IPO" → actionType=check_ipo, matchQuery="hexagon"
+    - "remind me about IPO deadlines" or "notify me when IPOs are closing" → actionType=ipo_alert, title="IPO Deadline Alerts", intervalMinutes=1440
     `;
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -373,6 +374,7 @@ RULES:
 - "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
 - "current IPOs" or "show me IPOs" → actionType=check_ipo
 - "upcoming IPOs" → actionType=check_ipo, matchQuery="upcoming"
+- "remind me about IPO deadlines" → actionType=ipo_alert, title="IPO Deadline Alerts", intervalMinutes=1440
 `;
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -395,7 +397,7 @@ RULES:
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, unknown. Return valid JSON.' },
+        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, unknown. Return valid JSON.' },
         { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"` }
       ],
       temperature: 0.3,
@@ -427,6 +429,7 @@ RULES:
 - "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
 - "current IPOs" → check_ipo
 - "upcoming IPOs" → check_ipo, matchQuery="upcoming"
+- "remind me about IPO deadlines" → ipo_alert, title="IPO Deadline Alerts", intervalMinutes=1440
 `;
 
     const response = await provider.client.run(provider.models.parsing, {

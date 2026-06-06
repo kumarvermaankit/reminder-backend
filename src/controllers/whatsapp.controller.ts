@@ -566,6 +566,9 @@ export class WhatsappController {
         case 'match_alert':
           botResponse = await this.handleMatchAlert(parsed, user, msgTimestamp);
           break;
+        case 'ipo_alert':
+          botResponse = await this.handleIpoAlert(parsed, user, msgTimestamp);
+          break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
       }
@@ -1118,6 +1121,36 @@ export class WhatsappController {
     } catch (e) {
       this.logger.error('Failed to create match alert:', e);
       return 'Sorry, I could not set up that match alert.';
+    }
+  }
+
+  private async handleIpoAlert(parsed: any, user: any, msgTimestamp?: Date): Promise<string> {
+    const interval = parsed.intervalMinutes || 1440;
+    const now = msgTimestamp || new Date();
+    const metadata = {
+      category: 'finance',
+      priority: 'medium',
+      source: 'whatsapp',
+      type: 'ipo_alert',
+    };
+    try {
+      await this.reminderService.createReminder({
+        userId: user.id,
+        title: 'IPO Deadline Alerts',
+        description: parsed.description || 'Daily IPO deadline check',
+        reminderDate: new Date(now.getTime() + interval * 60 * 1000),
+        msgTimestamp,
+        isCompleted: false,
+        isPersistent: true,
+        reminderInterval: interval,
+        maxReminderCount: 0,
+        reminderCount: 0,
+        metadata,
+      });
+      return '📈 I\'ll check for IPO deadlines daily and remind you when an IPO is closing soon! Say "done" to stop alerts.';
+    } catch (e) {
+      this.logger.error('Failed to create IPO alert:', e);
+      return 'Sorry, I could not set up that IPO alert.';
     }
   }
 

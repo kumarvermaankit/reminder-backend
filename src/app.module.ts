@@ -24,6 +24,9 @@ import { ListWorkflowService } from './services/list-workflow.service';
 import { StockService } from './services/stock.service';
 import { CricketService } from './services/cricket.service';
 import { IpoService } from './services/ipo.service';
+import { GoogleCalendarService } from './services/google-calendar.service';
+import { GoogleCalendarController } from './controllers/google-calendar.controller';
+import { GoogleToken } from './entities/google-token.entity';
 import { Reminder } from './entities/reminder.entity';
 import { ReminderSchedule } from './entities/reminder-schedule.entity';
 import { User } from './entities/user.entity';
@@ -47,11 +50,11 @@ import { TodoItem } from './entities/todo-item.entity';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem],
+      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken],
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem])  ],
-  controllers: [AppController, ReminderController, AiController, WhatsappController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService],
+    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken])  ],
+  controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService],
 })
 export class AppModule {}

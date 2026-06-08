@@ -12,6 +12,7 @@ import { ListWorkflowService } from '../services/list-workflow.service';
 import { StockService } from '../services/stock.service';
 import { CricketService } from '../services/cricket.service';
 import { IpoService } from '../services/ipo.service';
+import { GoogleCalendarService } from '../services/google-calendar.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 
@@ -33,6 +34,7 @@ export class WhatsappController {
     private readonly stockService: StockService,
     private readonly cricketService: CricketService,
     private readonly ipoService: IpoService,
+    private readonly googleCalendarService: GoogleCalendarService,
   ) {}
 
   @Post('webhook')
@@ -568,6 +570,15 @@ export class WhatsappController {
           break;
         case 'ipo_alert':
           botResponse = await this.handleIpoAlert(parsed, user, msgTimestamp);
+          break;
+        case 'connect_calendar':
+          botResponse = await this.handleConnectCalendar(user);
+          break;
+        case 'create_event':
+          botResponse = await this.handleCreateEvent(parsed, user, msgTimestamp);
+          break;
+        case 'list_events':
+          botResponse = await this.handleListEvents(user);
           break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
@@ -1152,6 +1163,97 @@ export class WhatsappController {
       this.logger.error('Failed to create IPO alert:', e);
       return 'Sorry, I could not set up that IPO alert.';
     }
+  }
+
+  private async handleConnectCalendar(user: any): Promise<string> {
+    const connected = await this.googleCalendarService.isConnected(user.id);
+    if (connected) {
+      const email = await this.googleCalendarService.getConnectedEmail(user.id);
+      return `✅ Your Google Calendar is already connected (${email}).\n\n• Say *"create a meeting tomorrow at 3pm"* to create an event\n• Say *"my events"* to see upcoming events`;
+    }
+    const authUrl = this.googleCalendarService.getAuthUrl(user.id, user.phone);
+    return `🔗 Click the link below to connect your Google Calendar:\n\n${authUrl}\n\nYou'll be taken to Google to authorize access. After that, I'll confirm here!`;
+  }
+
+  private async handleCreateEvent(parsed: any, user: any, msgTimestamp?: Date): Promise<string> {
+    const connected = await this.googleCalendarService.isConnected(user.id);
+    if (!connected) {
+      const authUrl = this.googleCalendarService.getAuthUrl(user.id, user.phone);
+      return `First, connect your Google Calendar:\n\n${authUrl}\n\nThen say *"create a meeting tomorrow at 3pm"* again.`;
+    }
+
+    const title = parsed.title || 'Untitled Event';
+    let start: Date;
+    const nowRef = msgTimestamp || new Date();
+
+    if (parsed.reminderDate && !isNaN(new Date(parsed.reminderDate).getTime())) {
+      start = new Date(parsed.reminderDate);
+    } else if (parsed.localTime) {
+      const offsetMin = this.getOffsetMinutes(user.timezone, nowRef);
+      const parsedTime = this.localTimeToUtc(parsed.localTime, offsetMin, nowRef);
+      if (!parsedTime) return `I couldn't understand the time "${parsed.localTime}". Try something like "tomorrow at 3pm".`;
+      start = parsedTime;
+    } else {
+      start = new Date(nowRef.getTime() + 60 * 60 * 1000);
+    }
+
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+
+    const description = parsed.description || parsed.noteContent || '';
+
+    const event = await this.googleCalendarService.createEvent(user.id, {
+      summary: title,
+      description,
+      start,
+      end,
+      attendees: [],
+      addMeet: true,
+    });
+
+    if (!event) return 'Sorry, I could not create the event. Please try again.';
+
+    const startStr = start.toLocaleString('en-US', {
+      timeZone: user.timezone,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    let response = `✅ *Event Created*\n\n📅 *${title}*\n⏰ ${startStr}`;
+    if (description) response += `\n📝 ${description}`;
+    if (event.meetLink) response += `\n\n📹 *Google Meet:* ${event.meetLink}`;
+    return response;
+  }
+
+  private async handleListEvents(user: any): Promise<string> {
+    const connected = await this.googleCalendarService.isConnected(user.id);
+    if (!connected) {
+      const authUrl = this.googleCalendarService.getAuthUrl(user.id, user.phone);
+      return `First, connect your Google Calendar:\n\n${authUrl}\n\nThen say *"my events"* again.`;
+    }
+
+    const events = await this.googleCalendarService.listEvents(user.id, 10);
+    if (events.length === 0) return "📅 No upcoming events found on your calendar.";
+
+    const formatted = events.map((e, i) => {
+      const startStr = e.start.toLocaleString('en-US', {
+        timeZone: user.timezone,
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      let line = `*${i + 1}. ${e.summary}*\n   🕐 ${startStr}`;
+      if (e.meetLink) line += `\n   📹 [Join Meet](${e.meetLink})`;
+      return line;
+    }).join('\n\n');
+
+    return `📅 *Upcoming Events*\n\n${formatted}`;
   }
 
   private async handleSystemQuery(message: string): Promise<string> {

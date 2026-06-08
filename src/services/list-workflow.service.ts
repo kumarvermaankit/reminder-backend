@@ -4,6 +4,7 @@ import { TodoListService } from './todo-list.service';
 import { UserContextService } from './user-context.service';
 import { UserService } from './user.service';
 import { ReminderService } from './reminder.service';
+import { GoogleCalendarService } from './google-calendar.service';
 import { appendChatTips } from '../constants/chat-tips';
 import { MENU_ROW, getMenuSections, getEditListSections } from '../constants/menu-sections';
 
@@ -33,6 +34,7 @@ export class ListWorkflowService implements OnModuleInit {
     private readonly whatsappService: WhatsappService,
     private readonly userService: UserService,
     private readonly reminderService: ReminderService,
+    private readonly googleCalendarService: GoogleCalendarService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -510,6 +512,21 @@ export class ListWorkflowService implements OnModuleInit {
       const body = "📈 *IPO Alerts Activated!*\n\nI'll check daily and notify you when an IPO is closing soon. Say \"done\" to stop alerts.";
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
+      return true;
+    }
+    if (rowId === MENU_ROW.connectCalendar) {
+      const connected = await this.googleCalendarService.isConnected(userId);
+      if (connected) {
+        const email = await this.googleCalendarService.getConnectedEmail(userId);
+        const body = `✅ *Google Calendar connected*\n\nAccount: ${email}\n\n• Say *"create a meeting tomorrow at 3pm"* to create an event with Google Meet\n• Say *"my events"* to see what's coming up`;
+        await this.whatsappService.sendWithMenu(userPhone, body);
+        await this.userContextService.pushMessage(userId, 'assistant', body);
+      } else {
+        const authUrl = this.googleCalendarService.getAuthUrl(userId, userPhone);
+        const body = `🔗 *Connect Google Calendar*\n\nClick the link below to authorize:\n\n${authUrl}\n\nAfter you grant access, I'll confirm here!`;
+        await this.whatsappService.sendWithMenu(userPhone, body);
+        await this.userContextService.pushMessage(userId, 'assistant', body);
+      }
       return true;
     }
     if (rowId === MENU_ROW.editList) {

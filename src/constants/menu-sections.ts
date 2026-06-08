@@ -8,6 +8,7 @@ export const MENU_ROW = {
   createNote: 'menu_create_note',
   showNotes: 'menu_show_notes',
   ipoAlerts: 'menu_ipo_alerts',
+  connectCalendar: 'menu_connect_calendar',
   openList: (listId: string) => `list_open:${listId}`,
   editListOpen: (listId: string) => `edit_list_open:${listId}`,
   editRename: 'edit_rename',
@@ -38,6 +39,12 @@ export function getMenuSections() {
       title: '📈 IPOs',
       rows: [
         { id: MENU_ROW.ipoAlerts, title: 'Get IPO deadline alerts', description: 'Get notified when IPOs are closing soon' },
+      ],
+    },
+    {
+      title: '📅 Calendar',
+      rows: [
+        { id: MENU_ROW.connectCalendar, title: 'Google Calendar', description: 'Connect your calendar + create events with Meet' },
       ],
     },
     {

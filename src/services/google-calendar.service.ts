@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { google, calendar_v3 } from 'googleapis';
+import type { calendar_v3 } from 'googleapis';
 import { GoogleToken } from '../entities/google-token.entity';
 
 export interface CalendarEvent {
@@ -18,14 +18,16 @@ export interface CalendarEvent {
 @Injectable()
 export class GoogleCalendarService {
   private readonly logger = new Logger(GoogleCalendarService.name);
-  private readonly oauth2Client: any;
 
   constructor(
     @InjectRepository(GoogleToken)
     private readonly tokenRepository: Repository<GoogleToken>,
     private readonly configService: ConfigService,
-  ) {
-    this.oauth2Client = new google.auth.OAuth2(
+  ) {}
+
+  private getOAuth2Client(): any {
+    const { google } = require('googleapis');
+    return new google.auth.OAuth2(
       this.configService.get<string>('GOOGLE_CLIENT_ID'),
       this.configService.get<string>('GOOGLE_CLIENT_SECRET'),
       this.configService.get<string>('GOOGLE_CALLBACK_URL'),
@@ -33,7 +35,8 @@ export class GoogleCalendarService {
   }
 
   getAuthUrl(userId: string, userPhone: string): string {
-    return this.oauth2Client.generateAuthUrl({
+    const oauth2Client = this.getOAuth2Client();
+    return oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: [
         'https://www.googleapis.com/auth/calendar',
@@ -46,11 +49,13 @@ export class GoogleCalendarService {
   }
 
   async handleCallback(code: string, state: string): Promise<{ email: string; phone: string }> {
+    const { google } = require('googleapis');
+    const oauth2Client = this.getOAuth2Client();
     const { userId, phone } = JSON.parse(state);
-    const { tokens } = await this.oauth2Client.getToken(code);
-    this.oauth2Client.setCredentials(tokens);
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
 
-    const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const { data: userInfo } = await oauth2.userinfo.get();
 
     const existing = await this.tokenRepository.findOne({ where: { userId } });
@@ -78,16 +83,18 @@ export class GoogleCalendarService {
   }
 
   async getCalendarClient(userId: string): Promise<calendar_v3.Calendar | null> {
+    const { google } = require('googleapis');
     const token = await this.tokenRepository.findOne({ where: { userId } });
     if (!token) return null;
 
-    this.oauth2Client.setCredentials({
+    const oauth2Client = this.getOAuth2Client();
+    oauth2Client.setCredentials({
       access_token: token.accessToken,
       refresh_token: token.refreshToken,
       expiry_date: token.expiryDate,
     });
 
-    this.oauth2Client.on('tokens', async (newTokens) => {
+    oauth2Client.on('tokens', async (newTokens) => {
       const update: Partial<GoogleToken> = {};
       if (newTokens.access_token) update.accessToken = newTokens.access_token;
       if (newTokens.refresh_token) update.refreshToken = newTokens.refresh_token;
@@ -97,7 +104,7 @@ export class GoogleCalendarService {
       }
     });
 
-    return google.calendar({ version: 'v3', auth: this.oauth2Client as any });
+    return google.calendar({ version: 'v3', auth: oauth2Client });
   }
 
   async listEvents(userId: string, maxResults = 10): Promise<CalendarEvent[]> {

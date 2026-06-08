@@ -155,6 +155,7 @@ export class SimpleAiService {
     conversation?: { role: string; text: string }[],
     pendingReminders?: { id: string; title: string }[],
     msgTimestamp?: Date,
+    timezone?: string,
   ): Promise<ParsedReminder> {
     const provider = await this.selectProvider();
     if (!provider) {
@@ -171,7 +172,15 @@ export class SimpleAiService {
 
     const workflowsText = `\nSystem capabilities (refer to this when user asks how things work):\n${WORKFLOWS}\n---`;
 
-    const fullPrompt = `${userInput}${historyText}${remindersText}${workflowsText}`;
+    const now = msgTimestamp || new Date();
+    const tz = timezone || 'UTC';
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const localDateStr = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const localTimeStr = now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+    const dateContext = `\nUser's local date and time: ${localDateStr}, ${localTimeStr} (timezone: ${tz}).\nUse this to compute relative days (e.g. "tomorrow" = ${localDateStr.split(',')[0]} + 1 day).`;
+
+    const fullPrompt = `${userInput}${dateContext}${historyText}${remindersText}${workflowsText}`;
 
     try {
       switch (provider.name) {
@@ -191,7 +200,7 @@ export class SimpleAiService {
       this.logger.error(`Failed to parse with ${provider.name}:`, error);
       if (this.providers.length > 1) {
         this.providers.shift();
-        return this.parseReminderInput(userInput, userId, conversation, pendingReminders, msgTimestamp);
+        return this.parseReminderInput(userInput, userId, conversation, pendingReminders, msgTimestamp, timezone);
       }
       throw error;
     }
@@ -302,10 +311,12 @@ export class SimpleAiService {
   private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse: "${userInput}"
     Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown.
-    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery
+    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
     RULES:
     - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+    - Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
     - Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
+    - "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
     - Do NOT compute any UTC timestamps — leave that to the system.
     - "what's the price of Reliance" or "check Tata Motors stock" → actionType=check_stock, stockSymbol="reliance" or "tata motors"
     - "alert me when Reliance hits 5000" → actionType=stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
@@ -362,11 +373,13 @@ export class SimpleAiService {
 
     const prompt = `Parse: "${userInput}"
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown.
-    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery
+    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
 
 RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
 - Relative time ("in 5 minutes", "in 1 hour"): set intervalMinutes. Leave reminderDate and localTime empty.
+- "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
 - Do NOT compute any UTC timestamps.
 - "what's the price of Reliance" → actionType=check_stock, stockSymbol="reliance"
 - "alert me when Reliance hits 5000" → actionType=stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
@@ -405,7 +418,7 @@ RULES:
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what's the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "create a meeting tomorrow at 3pm" → create_event, title="Meeting", localTime="3pm"\n- "my events" → list_events` }
+        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "create a meeting tomorrow at 3pm" → create_event, title="Meeting", localTime="3pm"\n- "my events" → list_events` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -421,12 +434,14 @@ RULES:
   private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
 
 RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
 - Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
 - Do NOT compute UTC timestamps. morning=9am, afternoon=2pm, evening=6pm, night=8pm.
+- "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
 - "price of Reliance" → check_stock, stockSymbol="reliance"
 - "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
 - "cricket score" → check_cricket, matchQuery="india"

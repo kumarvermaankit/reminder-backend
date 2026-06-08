@@ -465,27 +465,57 @@ export class WhatsappController {
       // Parse message via AI with full context
       this.logger.log('Parsing message via AI...');
       const parsed = await this.aiService.parseReminderInput(
-        message, user.id, conversation, pendingReminders, msgTimestamp,
+        message, user.id, conversation, pendingReminders, msgTimestamp, user.timezone,
       );
       this.logger.log(`AI parsed: actionType=${parsed.actionType}, confidence=${parsed.confidence}, localTime="${parsed.localTime || ''}"`);
 
       // ── Timezone check + time conversion ────────────────────────────────────
       // Convert local wall-clock time to UTC for reminder/list actions
-      if (parsed.localTime && msgTimestamp) {
+      if ((parsed.localTime || parsed.dayOfWeek) && msgTimestamp) {
         if (user.timezone === 'UTC') {
           await this.userContextService.setPendingTimezoneMessage(user.id, message);
-          const botMsg = `I see you want a reminder at ${parsed.localTime}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;
+          const botMsg = `I see you want a reminder at ${parsed.localTime || parsed.dayOfWeek}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;
           await this.whatsappService.sendWithMenu(userPhone, botMsg);
           await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         }
-        // Convert local wall-clock time to UTC using known timezone
         const offsetMin = this.getOffsetMinutes(user.timezone, msgTimestamp);
-        const utcDate = this.localTimeToUtc(parsed.localTime, offsetMin, msgTimestamp);
-        if (utcDate) {
-          this.logger.log(`Time: "${parsed.localTime}" tz=${user.timezone} offset=${offsetMin}min → ${utcDate.toISOString()}`);
-          parsed.reminderDate = utcDate;
+        const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+
+        // Start with msgTimestamp converted to user's local date
+        const localNow = new Date(msgTimestamp.getTime() + offsetMin * 60000);
+        let hours = 9, minutes = 0; // default time
+
+        if (parsed.localTime) {
+          const parsedTime = this.parseTimeString(parsed.localTime);
+          if (parsedTime) { hours = parsedTime.h; minutes = parsedTime.m; }
         }
+
+        // Build the target date in user's local time
+        let targetLocal = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), hours, minutes, 0, 0));
+
+        // If dayOfWeek, adjust to next occurrence
+        if (parsed.dayOfWeek) {
+          const targetDay = dayMap[parsed.dayOfWeek.toLowerCase()];
+          if (targetDay !== undefined) {
+            const currentDay = localNow.getUTCDay();
+            let daysUntil = (targetDay - currentDay + 7) % 7;
+            if (daysUntil === 0) daysUntil = 7; // next week
+            targetLocal.setUTCDate(targetLocal.getUTCDate() + daysUntil);
+            this.logger.log(`dayOfWeek: "${parsed.dayOfWeek}" → next in ${daysUntil} days`);
+            if (!parsed.intervalMinutes) parsed.intervalMinutes = 10080;
+          }
+        } else {
+          // No dayOfWeek: if the computed time is in the past, advance to next day
+          if (targetLocal <= localNow) {
+            targetLocal.setUTCDate(targetLocal.getUTCDate() + 1);
+          }
+        }
+
+        // Convert back to UTC
+        const utcDate = new Date(targetLocal.getTime() - offsetMin * 60000);
+        this.logger.log(`Time: localTime="${parsed.localTime}" dayOfWeek="${parsed.dayOfWeek}" offset=${offsetMin}min targetLocal=${targetLocal.toISOString()} → utc=${utcDate.toISOString()}`);
+        parsed.reminderDate = utcDate;
       }
 
       // Save user's name if AI extracted one

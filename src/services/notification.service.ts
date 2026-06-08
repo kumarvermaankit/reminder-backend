@@ -94,7 +94,11 @@ export class NotificationService {
   }
 
   private async buildMessage(reminder: any, userName: string): Promise<string | null> {
-    const meta = reminder.metadata || {};
+    let meta = reminder.metadata || {};
+    // Handle case where JSON column is returned as string
+    if (typeof meta === 'string') {
+      try { meta = JSON.parse(meta); } catch { meta = {}; }
+    }
     // Inline live data for stock alerts
     if (meta.type === 'stock_alert') {
       const quote = await this.stockService.getQuote(meta.stockSymbol || reminder.title);

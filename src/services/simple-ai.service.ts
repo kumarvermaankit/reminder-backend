@@ -311,12 +311,15 @@ export class SimpleAiService {
   private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse: "${userInput}"
     Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown.
-    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
+    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees
     RULES:
     - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+    - Relative time ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Leave reminderDate and localTime empty.
     - Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
-    - Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
-    - "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
+    - For calendar events: extract attendee emails into attendees array.
+    - "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]
+    - "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"
+    - "create a Google Meet for tomorrow at 2pm with Priya about project review" → actionType=create_event, title="Project review", localTime="2pm", attendees=["priya@email.com"]
     - Do NOT compute any UTC timestamps — leave that to the system.
     - "what's the price of Reliance" or "check Tata Motors stock" → actionType=check_stock, stockSymbol="reliance" or "tata motors"
     - "alert me when Reliance hits 5000" → actionType=stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
@@ -373,13 +376,16 @@ export class SimpleAiService {
 
     const prompt = `Parse: "${userInput}"
 Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown.
-    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
+    Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees
 
 RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+- Relative time ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Leave reminderDate and localTime empty.
 - Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
-- Relative time ("in 5 minutes", "in 1 hour"): set intervalMinutes. Leave reminderDate and localTime empty.
-- "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
+- For calendar events: extract attendee emails into attendees array.
+- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]
+- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"
+- "create a Google Meet for tomorrow at 2pm with Priya about project review" → actionType=create_event, title="Project review", localTime="2pm", attendees=["priya@email.com"]
 - Do NOT compute any UTC timestamps.
 - "what's the price of Reliance" → actionType=check_stock, stockSymbol="reliance"
 - "alert me when Reliance hits 5000" → actionType=stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
@@ -418,7 +424,7 @@ RULES:
       model: provider.models.parsing,
       messages: [
         { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown. Return valid JSON.' },
-        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "create a meeting tomorrow at 3pm" → create_event, title="Meeting", localTime="3pm"\n- "my events" → list_events` }
+        { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Leave reminderDate and localTime empty.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- For calendar events: extract attendee emails into attendees array.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]\n- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "my events" → list_events` }
       ],
       temperature: 0.3,
       max_tokens: 300
@@ -434,14 +440,16 @@ RULES:
   private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees
 
 RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.
+- Relative time ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Leave reminderDate and localTime empty.
 - Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.
-- Relative time ("in 5 minutes"): set intervalMinutes. Leave reminderDate and localTime empty.
+- For calendar events: extract attendee emails into attendees array.
 - Do NOT compute UTC timestamps. morning=9am, afternoon=2pm, evening=6pm, night=8pm.
-- "remind me every thursday 8am" or "every thursday 8am sai baba vrath katha" → actionType=create_reminder, title="Sai Baba Vrath Katha", dayOfWeek="thursday", localTime="8am"
+- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]
+- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"
 - "price of Reliance" → check_stock, stockSymbol="reliance"
 - "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"
 - "cricket score" → check_cricket, matchQuery="india"

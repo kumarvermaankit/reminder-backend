@@ -30,6 +30,8 @@ export interface ParsedReminder {
   localTime?: string;
   /** Day of week from user (e.g. "thursday", "every monday", "tuesday") */
   dayOfWeek?: string;
+  /** Attendee email addresses for calendar events */
+  attendees?: string[];
   // Stocks
   stockSymbol?: string;
   targetPrice?: number;

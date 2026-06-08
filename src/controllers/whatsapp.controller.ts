@@ -1223,6 +1223,8 @@ export class WhatsappController {
       const parsedTime = this.localTimeToUtc(parsed.localTime, offsetMin, nowRef);
       if (!parsedTime) return `I couldn't understand the time "${parsed.localTime}". Try something like "tomorrow at 3pm".`;
       start = parsedTime;
+    } else if (parsed.intervalMinutes) {
+      start = new Date(nowRef.getTime() + parsed.intervalMinutes * 60 * 1000);
     } else {
       start = new Date(nowRef.getTime() + 60 * 60 * 1000);
     }
@@ -1230,13 +1232,14 @@ export class WhatsappController {
     const end = new Date(start.getTime() + 60 * 60 * 1000);
 
     const description = parsed.description || parsed.noteContent || '';
+    const attendees = parsed.attendees || [];
 
     const event = await this.googleCalendarService.createEvent(user.id, {
       summary: title,
       description,
       start,
       end,
-      attendees: [],
+      attendees,
       addMeet: true,
     });
 
@@ -1254,6 +1257,7 @@ export class WhatsappController {
 
     let response = `✅ *Event Created*\n\n📅 *${title}*\n⏰ ${startStr}`;
     if (description) response += `\n📝 ${description}`;
+    if (attendees.length > 0) response += `\n👥 ${attendees.join(', ')}`;
     if (event.meetLink) response += `\n\n📹 *Google Meet:* ${event.meetLink}`;
     return response;
   }

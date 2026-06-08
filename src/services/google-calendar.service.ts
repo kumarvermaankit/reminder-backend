@@ -162,6 +162,7 @@ export class GoogleCalendarService {
       calendarId: 'primary',
       requestBody: event,
       conferenceDataVersion: params.addMeet ? 1 : 0,
+      sendUpdates: 'all',
     });
 
     return {

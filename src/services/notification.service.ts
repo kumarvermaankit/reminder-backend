@@ -67,7 +67,7 @@ export class NotificationService {
                 type: 'body',
                 parameters: [{ type: 'text', text: message }],
               }];
-              await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+              await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
             } else {
               // Send interactive message with buttons (within 24h window)
               const buttons = reminder.isPersistent
@@ -269,7 +269,7 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
         } else {
           await this.whatsappService.sendWithMenu(user.phone, message);
         }
@@ -284,7 +284,7 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
         } else {
           await this.whatsappService.sendInteractiveMessage(user.phone, message, [
             { id: 'daily_list_create', title: '📋 Create Daily List' },

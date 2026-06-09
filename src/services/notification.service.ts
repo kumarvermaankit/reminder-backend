@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { WhatsappService } from './whatsapp.service';
 import { UserService } from './user.service';
 import { TodoListService } from './todo-list.service';
@@ -19,6 +22,8 @@ export class NotificationService {
     private readonly stockService: StockService,
     private readonly cricketService: CricketService,
     private readonly ipoService: IpoService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
@@ -284,5 +289,34 @@ _${match.status}_`;
   private async incrementDailyReminderCount(userId: string): Promise<void> {
     // This would typically increment a daily reminder counter
     // For now, it's a placeholder
+  }
+
+  // ── Inactivity ping ────────────────────────────────────────────────────
+  @Cron(CronExpression.EVERY_HOUR)
+  async pingInactiveUsers(): Promise<void> {
+    try {
+      const cutoff = new Date(Date.now() - 10 * 60 * 60 * 1000);
+      const inactives = await this.userRepository.find({
+        where: {
+          isActive: true,
+          lastMessageTime: LessThan(cutoff),
+        },
+      });
+      for (const user of inactives) {
+        try {
+          const name = (!user.name || user.name === 'there') ? '' : user.name;
+          const msg = name
+            ? `Hey ${name}! 👋 It's been a while — need any help with reminders, notes, or your lists?`
+            : `Hey there! 👋 It's been a while — need any help with reminders, notes, or your lists?`;
+          await this.whatsappService.sendWithMenu(user.phone, msg);
+          await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+          this.logger.log(`Inactivity ping sent to user ${user.id}`);
+        } catch (e) {
+          this.logger.error(`Failed to ping inactive user ${user.id}:`, e);
+        }
+      }
+    } catch (e) {
+      this.logger.error('Error in pingInactiveUsers:', e);
+    }
   }
 }

@@ -131,6 +131,8 @@ export class WhatsappController {
         });
       }
 
+      await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+
       await this.userContextService.pushMessage(user.id, 'user', `[menu] ${listReply.title}`);
 
       const handled = await this.listWorkflowService.handleListReply(
@@ -168,6 +170,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
         await this.listWorkflowService.handleButton(userPhone, user.id, buttonReply.id);
         return;
@@ -186,6 +189,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
         await this.listWorkflowService.sendSlideUpMenu(userPhone, user.id);
         return;
@@ -282,6 +286,9 @@ export class WhatsappController {
       } else {
         this.logger.log(`Found existing user ${user.id}`);
       }
+      
+      // Track last message time for inactivity ping
+      await this.userService.updateUser(user.id, { lastMessageTime: msgTimestamp || new Date() });
       
       console.log("msgTimestamp", msgTimestamp);
       // // Auto-detect timezone from WhatsApp message timestamp + greeting

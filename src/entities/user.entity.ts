@@ -46,6 +46,9 @@ export class User {
   @Column({ name: 'last_daily_prompt_date', type: 'date', nullable: true })
   lastDailyPromptDate: string; // YYYY-MM-DD in user's local date
 
+  @Column({ name: 'last_message_time', type: 'datetime', nullable: true })
+  lastMessageTime: Date;
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

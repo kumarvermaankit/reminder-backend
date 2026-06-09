@@ -57,16 +57,30 @@ export class NotificationService {
       switch (user.preferredContactMethod) {
         case 'whatsapp':
           if (user.phone) {
-            const buttons = reminder.isPersistent
-              ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
-              : [
-                  { id: `done:${schedule.id}`, title: 'Done ✅' },
-                  { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
-                ];
-            const allButtons = buttons.length < 3
-              ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
-              : buttons;
-            await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
+            const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
+            const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
+            const outsideWindow = hoursSinceLastMsg > 24;
+
+            if (outsideWindow) {
+              // Send via template (works outside 24h window)
+              const bodyComponents = [{
+                type: 'body',
+                parameters: [{ type: 'text', text: message }],
+              }];
+              await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+            } else {
+              // Send interactive message with buttons (within 24h window)
+              const buttons = reminder.isPersistent
+                ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
+                : [
+                    { id: `done:${schedule.id}`, title: 'Done ✅' },
+                    { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
+                  ];
+              const allButtons = buttons.length < 3
+                ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
+                : buttons;
+              await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
+            }
             sent = true;
           }
           break;
@@ -236,6 +250,10 @@ _${match.status}_`;
       const itemCount = existing?.items?.filter(i => !i.isCompleted)?.length || 0;
 
       let message: string;
+      const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
+      const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
+      const outsideWindow = hoursSinceLastMsg > 24;
+
       if (itemCount > 0) {
         message = [
           `☀️ Good morning, ${greeting}!`,
@@ -246,17 +264,33 @@ _${match.status}_`;
           '',
           `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
         ].join('\n');
-        await this.whatsappService.sendWithMenu(user.phone, message);
+        if (outsideWindow) {
+          const bodyComponents = [{
+            type: 'body',
+            parameters: [{ type: 'text', text: message }],
+          }];
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+        } else {
+          await this.whatsappService.sendWithMenu(user.phone, message);
+        }
       } else {
         message = [
           `☀️ Good morning, ${greeting}!`,
           '',
           `Tap the button below to create your *${todayTitle}* list for today!`,
         ].join('\n');
-        await this.whatsappService.sendInteractiveMessage(user.phone, message, [
-          { id: 'daily_list_create', title: '📋 Create Daily List' },
-          { id: 'menu_btn', title: '📋 Menu' },
-        ]);
+        if (outsideWindow) {
+          const bodyComponents = [{
+            type: 'body',
+            parameters: [{ type: 'text', text: message }],
+          }];
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notification', 'en', bodyComponents);
+        } else {
+          await this.whatsappService.sendInteractiveMessage(user.phone, message, [
+            { id: 'daily_list_create', title: '📋 Create Daily List' },
+            { id: 'menu_btn', title: '📋 Menu' },
+          ]);
+        }
       }
 
       await this.userService.updateUser(user.id, { lastDailyPromptDate: localToday });

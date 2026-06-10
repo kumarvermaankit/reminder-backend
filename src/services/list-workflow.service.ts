@@ -477,7 +477,20 @@ export class ListWorkflowService implements OnModuleInit {
       return true;
     }
     if (rowId === MENU_ROW.showReminders) {
-      const body = "⏰ *Your reminders*\n\nSay *\"show my reminders\"* and I'll list all your pending reminders!";
+      const user = await this.userService.getUserById(userId);
+      const tz = user?.timezone || 'UTC';
+      const reminders = await this.reminderService.getPendingRemindersForUser(userId);
+      if (reminders.length === 0) {
+        const body = "⏰ You have no pending reminders!";
+        await this.whatsappService.sendWithMenu(userPhone, body);
+        await this.userContextService.pushMessage(userId, 'assistant', body);
+        return true;
+      }
+      const lines = reminders.map((r, i) => {
+        const time = r.reminderDate.toLocaleString('en-US', { timeZone: tz, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        return `${i + 1}. *${r.title}* — ${time}`;
+      });
+      const body = `⏰ *Your reminders (${reminders.length})*\n\n${lines.join('\n')}`;
       await this.whatsappService.sendWithMenu(userPhone, body);
       await this.userContextService.pushMessage(userId, 'assistant', body);
       return true;

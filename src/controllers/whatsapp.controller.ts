@@ -195,6 +195,26 @@ export class WhatsappController {
         return;
       }
 
+      // Route menu action buttons (e.g. from inactivity ping) to the list workflow
+      const menuRowIds = ['menu_view_list', 'menu_show_reminders', 'menu_create_reminder'];
+      if (menuRowIds.includes(buttonReply.id)) {
+        let user = await this.userService.getUserByPhone(userPhone);
+        if (!user) {
+          user = await this.userService.createUser({
+            phone: userPhone,
+            name: 'there',
+            email: `user_${userPhone}@reminder.app`,
+            preferredContactMethod: 'whatsapp',
+            timezone: 'UTC',
+            isActive: true,
+          });
+        }
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
+        await this.listWorkflowService.handleListReply(userPhone, user.id, buttonReply.id, user.timezone);
+        return;
+      }
+
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -425,16 +445,57 @@ export class WhatsappController {
       const pendingReminders = await this.reminderService.getPendingRemindersForUser(user.id);
       this.logger.log(`User has ${pendingReminders.length} pending reminders`);
 
-      // Check for pending list selection (user responded with a number)
+      // Check for pending list selection (user responded with a number or numbers)
       const pendingSelection = await this.userContextService.getPendingListSelection(user.id);
-      const selectionNum = parseInt(message.trim(), 10);
-      if (pendingSelection && selectionNum > 0 && selectionNum <= pendingSelection.listIds.length) {
-        this.logger.log(`Resolving list selection: ${selectionNum} (${pendingSelection.actionType})`);
-        await this.userContextService.clearPendingListSelection(user.id);
-        const selectedId = pendingSelection.listIds[selectionNum - 1];
-        const list = await this.todoListService.getList(selectedId, user.id);
-        let selRes: string;
-        switch (pendingSelection.actionType) {
+      if (pendingSelection) {
+        // ── confirm_delete_list: multi-select with "all" / "cancel" support ──
+        if (pendingSelection.actionType === 'confirm_delete_list') {
+          const trimmed = message.trim().toLowerCase();
+          if (trimmed === 'cancel') {
+            await this.userContextService.clearPendingListSelection(user.id);
+            const botMsg = '👍 Deletion cancelled.';
+            await this.sendAssistantReply(userPhone, user.id, botMsg);
+            return;
+          }
+          if (trimmed === 'all') {
+            await this.userContextService.clearPendingListSelection(user.id);
+            const count = await this.todoListService.deleteLists(pendingSelection.listIds);
+            const botMsg = `🗑️ Deleted ${count} list(s)!`;
+            await this.sendAssistantReply(userPhone, user.id, botMsg);
+            return;
+          }
+          // Parse numbers from the reply, understanding intent
+          const allNums = trimmed.split(/[, ]+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n > 0 && n <= pendingSelection.listIds.length);
+          if (allNums.length === 0) {
+            const botMsg = `Please reply with the numbers you want to *keep*, "all", or "cancel".`;
+            await this.sendAssistantReply(userPhone, user.id, botMsg);
+            return;
+          }
+          await this.userContextService.clearPendingListSelection(user.id);
+          // If user said "delete X, Y", those are the ones to delete
+          // If user said "keep X, Y" or just "X, Y", those are the ones to keep
+          const wantsDelete = /\b(delete|remove|trash)\b/.test(trimmed);
+          const deleteIds = wantsDelete
+            ? allNums.map(n => pendingSelection.listIds[n - 1])
+            : pendingSelection.listIds.filter((_, i) => !allNums.includes(i + 1));
+          const count = await this.todoListService.deleteLists(deleteIds);
+          const kept = pendingSelection.listIds.length - count;
+          const botMsg = count === 0
+            ? 'No lists were deleted.'
+            : `🗑️ Deleted ${count} list(s), kept ${kept}.`;
+          await this.sendAssistantReply(userPhone, user.id, botMsg);
+          return;
+        }
+
+        // ── Other action types: single number selection ──
+        const selectionNum = parseInt(message.trim(), 10);
+        if (selectionNum > 0 && selectionNum <= pendingSelection.listIds.length) {
+          this.logger.log(`Resolving list selection: ${selectionNum} (${pendingSelection.actionType})`);
+          await this.userContextService.clearPendingListSelection(user.id);
+          const selectedId = pendingSelection.listIds[selectionNum - 1];
+          const list = await this.todoListService.getList(selectedId, user.id);
+          let selRes: string;
+          switch (pendingSelection.actionType) {
           case 'get_todo':
             selRes = this.todoListService.formatList(list, user.timezone);
             break;
@@ -458,6 +519,7 @@ export class WhatsappController {
         await this.sendAssistantReply(userPhone, user.id, selRes);
         return;
       }
+      } // closes outer if (pendingSelection)
 
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
@@ -991,14 +1053,76 @@ export class WhatsappController {
   }
 
   private async handleDeleteList(parsed: any, user: any): Promise<string> {
-    const listTitle = parsed.todoListTitle || 'general';
     try {
+      // Helper: show confirmation for matched lists
+      const showConfirm = async (lists: any[], reason: string): Promise<string> => {
+        if (lists.length === 0) return `I couldn't find any lists${reason}.`;
+        if (lists.length === 1) {
+          await this.todoListService.deleteList(lists[0].id, user.id);
+          return `🗑️ Deleted "${lists[0].title}"!`;
+        }
+        // Multiple matches — ask for confirmation
+        const itemCounts = lists.map(l => l.items?.filter(i => !i.isCompleted)?.length || 0);
+        await this.userContextService.setPendingListSelection(user.id, {
+          title: reason,
+          listIds: lists.map(l => l.id),
+          listDates: lists.map(l => l.createdAt.toLocaleDateString()),
+          listTitles: lists.map(l => l.title),
+          listItemCounts: itemCounts,
+          actionType: 'confirm_delete_list',
+        });
+        const lines = lists.map((l, i) =>
+          `*${i + 1}.* ${l.title} (${itemCounts[i]} pending) — created ${l.createdAt.toLocaleDateString()}`
+        ).join('\n');
+        return `Found ${lists.length} list(s):\n\n${lines}\n\nReply with the numbers you want to *keep* (e.g. "1, 3"), "all" to delete everything, or "cancel" to cancel.`;
+      };
+
+      // Pattern-based delete: "delete all daily lists"
+      if (parsed.deletePattern) {
+        const pattern = parsed.deletePattern.trim().toLowerCase();
+        const lists = await this.todoListService.findListsByPattern(user.id, pattern);
+        return showConfirm(lists, ` matching "${parsed.deletePattern}"`);
+      }
+
+      // Multiple list names: "delete shopping list and work list"
+      const titles: string[] = parsed.todoListTitles?.length
+        ? parsed.todoListTitles
+        : parsed.todoListTitle
+          ? [parsed.todoListTitle]
+          : [];
+
+      if (titles.length === 0) {
+        return "Which list would you like to delete? Say *\"delete my shopping list\"*.";
+      }
+
+      if (titles.length > 1) {
+        // Collect all lists matching the given titles
+        let allLists: any[] = [];
+        let notFound: string[] = [];
+        for (const title of titles) {
+          const lists = await this.todoListService.findListsByTitle(user.id, title);
+          if (lists.length === 0) {
+            notFound.push(title);
+          } else {
+            allLists = allLists.concat(lists);
+          }
+        }
+        const msg = await showConfirm(allLists, '');
+        if (notFound.length > 0) {
+          return `Couldn't find: ${notFound.join(', ')}\n\n${msg}`;
+        }
+        return msg;
+      }
+
+      // Single title (original flow)
+      const listTitle = titles[0];
       const lists = await this.todoListService.findListsByTitle(user.id, listTitle);
       if (lists.length > 0) {
         if (lists.length === 1) {
           await this.todoListService.deleteList(lists[0].id, user.id);
           return `🗑️ Deleted "${listTitle}" list!`;
         }
+        // Multiple lists with the same exact name — ask which one
         await this.userContextService.setPendingListSelection(user.id, {
           title: listTitle,
           listIds: lists.map(l => l.id),

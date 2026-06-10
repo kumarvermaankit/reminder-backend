@@ -11,6 +11,10 @@ export interface PendingListSelection {
   itemRef?: string;
   newContent?: string;
   itemTargets?: string[];
+  /** Display titles for delete confirmation */
+  listTitles?: string[];
+  /** Item counts for each list */
+  listItemCounts?: number[];
 }
 
 /** Guided create-list flow (name → add multiple items via buttons). */

@@ -23,6 +23,8 @@ export interface ParsedReminder {
   password?: string;
   // Todo lists
   todoListTitle?: string;
+  todoListTitles?: string[];
+  deletePattern?: string;
   todoItemContent?: string;
   todoItemContents?: string[];
   dailyPromptTime?: string;

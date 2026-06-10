@@ -329,7 +329,7 @@ _${match.status}_`;
   @Cron(CronExpression.EVERY_HOUR)
   async pingInactiveUsers(): Promise<void> {
     try {
-      const cutoff = new Date(Date.now() - 10 * 60 * 60 * 1000);
+      const cutoff = new Date(Date.now() - 23 * 60 * 60 * 1000);
       const inactives = await this.userRepository.find({
         where: {
           isActive: true,
@@ -339,10 +339,14 @@ _${match.status}_`;
       for (const user of inactives) {
         try {
           const name = (!user.name || user.name === 'there') ? '' : user.name;
-          const msg = name
-            ? `Hey ${name}! 👋 It's been a while — need any help with reminders, notes, or your lists?`
-            : `Hey there! 👋 It's been a while — need any help with reminders, notes, or your lists?`;
-          await this.whatsappService.sendWithMenu(user.phone, msg);
+          const header = name
+            ? `Hey ${name}! 👋 It's been a while — what would you like to do?`
+            : `Hey there! 👋 It's been a while — what would you like to do?`;
+          await this.whatsappService.sendInteractiveMessage(user.phone, header, [
+            { id: 'menu_view_list', title: '📋 Today\'s List' },
+            { id: 'menu_show_reminders', title: '⏰ My Reminders' },
+            { id: 'menu_create_reminder', title: '➕ New Reminder' },
+          ]);
           await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
           this.logger.log(`Inactivity ping sent to user ${user.id}`);
         } catch (e) {

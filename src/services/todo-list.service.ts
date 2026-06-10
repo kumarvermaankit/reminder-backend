@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { TodoList } from '../entities/todo-list.entity';
 import { TodoItem } from '../entities/todo-item.entity';
 
@@ -47,6 +47,23 @@ export class TodoListService {
       .andWhere('LOWER(list.title) = LOWER(:title)', { title })
       .orderBy('list.updatedAt', 'DESC')
       .getMany();
+  }
+
+  async findListsByPattern(userId: string, pattern: string): Promise<TodoList[]> {
+    return this.listRepo
+      .createQueryBuilder('list')
+      .leftJoinAndSelect('list.items', 'items')
+      .where('list.userId = :userId', { userId })
+      .andWhere('LOWER(list.title) LIKE LOWER(:pattern)', { pattern: `%${pattern}%` })
+      .orderBy('list.updatedAt', 'DESC')
+      .getMany();
+  }
+
+  async deleteLists(listIds: string[]): Promise<number> {
+    if (listIds.length === 0) return 0;
+    await this.itemRepo.delete({ listId: In(listIds) });
+    const result = await this.listRepo.delete(listIds);
+    return result.affected || 0;
   }
 
   async findListByTitle(userId: string, title: string): Promise<TodoList | null> {

@@ -67,7 +67,7 @@ export class NotificationService {
                 type: 'body',
                 parameters: [{ type: 'text', text: message }],
               }];
-              await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+              sent = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
             } else {
               // Send interactive message with buttons (within 24h window)
               const buttons = reminder.isPersistent

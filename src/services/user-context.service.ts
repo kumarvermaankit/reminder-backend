@@ -33,6 +33,20 @@ export interface ListWorkflow {
   editAction?: 'remove' | 'reminder';
 }
 
+/** Calorie tracking setup flow. */
+export interface CalorieWorkflow {
+  state: 'awaiting_weight' | 'awaiting_height' | 'awaiting_age' | 'awaiting_gender' | 'awaiting_activity_level' | 'awaiting_goal' | 'awaiting_target_weight' | 'complete';
+  collected: {
+    weight?: number;
+    height?: number;
+    age?: number;
+    gender?: string;
+    activityLevel?: string;
+    goal?: string;
+    targetWeight?: number;
+  };
+}
+
 @Injectable()
 export class UserContextService {
   private readonly logger = new Logger(UserContextService.name);
@@ -126,5 +140,23 @@ export class UserContextService {
 
   async clear(userId: string): Promise<void> {
     await this.repo.delete({ userId });
+  }
+
+  async setCalorieWorkflow(userId: string, workflow: CalorieWorkflow | null): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (!ctx) {
+      ctx = this.repo.create({ userId, conversation: [] });
+    }
+    ctx.calorieWorkflow = workflow;
+    await this.repo.save(ctx);
+  }
+
+  async getCalorieWorkflow(userId: string): Promise<CalorieWorkflow | null> {
+    const ctx = await this.repo.findOne({ where: { userId } });
+    return ctx?.calorieWorkflow || null;
+  }
+
+  async clearCalorieWorkflow(userId: string): Promise<void> {
+    await this.setCalorieWorkflow(userId, null);
   }
 }

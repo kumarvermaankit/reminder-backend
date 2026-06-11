@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { ListWorkflow, PendingListSelection } from '../services/user-context.service';
+import { ListWorkflow, PendingListSelection, CalorieWorkflow } from '../services/user-context.service';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -22,6 +22,9 @@ export class UserContextEntity {
 
   @Column('simple-json', { nullable: true, name: 'list_workflow' })
   listWorkflow: ListWorkflow | null;
+
+  @Column('simple-json', { nullable: true, name: 'calorie_workflow' })
+  calorieWorkflow: CalorieWorkflow | null;
 
   @Column({ nullable: true, name: 'pending_timezone_message' })
   pendingTimezoneMessage: string | null;

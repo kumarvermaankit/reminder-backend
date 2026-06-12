@@ -68,8 +68,8 @@ export class NotificationService {
                 parameters: [{ type: 'text', text: message }],
               }];
               sent = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+              if (sent) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
             } else {
-              // Send interactive message with buttons (within 24h window)
               const buttons = reminder.isPersistent
                 ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
                 : [
@@ -80,8 +80,9 @@ export class NotificationService {
                 ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
                 : buttons;
               await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
+              sent = true;
+              await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
             }
-            sent = true;
           }
           break;
         case 'email':
@@ -269,7 +270,8 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          const ok = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          if (ok) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
         } else {
           await this.whatsappService.sendWithMenu(user.phone, message);
         }
@@ -284,7 +286,8 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          const ok = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          if (ok) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
         } else {
           await this.whatsappService.sendInteractiveMessage(user.phone, message, [
             { id: 'daily_list_create', title: '📋 Create Daily List' },
@@ -339,15 +342,26 @@ _${match.status}_`;
       for (const user of inactives) {
         try {
           const name = (!user.name || user.name === 'there') ? '' : user.name;
+          const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
+          const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
+          const outsideWindow = hoursSinceLastMsg > 24;
           const header = name
             ? `Hey ${name}! 👋 It's been a while — what would you like to do?`
             : `Hey there! 👋 It's been a while — what would you like to do?`;
-          await this.whatsappService.sendInteractiveMessage(user.phone, header, [
-            { id: 'menu_view_list', title: '📋 Today\'s List' },
-            { id: 'menu_show_reminders', title: '⏰ My Reminders' },
-            { id: 'menu_create_reminder', title: '➕ New Reminder' },
-          ]);
-          await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+
+          if (outsideWindow) {
+            const bodyComponents = [{
+              type: 'body',
+              parameters: [{ type: 'text', text: header }],
+            }];
+            await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          } else {
+            await this.whatsappService.sendInteractiveMessage(user.phone, header, [
+              { id: 'menu_view_list', title: '📋 Today\'s List' },
+              { id: 'menu_show_reminders', title: '⏰ My Reminders' },
+              { id: 'menu_create_reminder', title: '➕ New Reminder' },
+            ]);
+          }
           this.logger.log(`Inactivity ping sent to user ${user.id}`);
         } catch (e) {
           this.logger.error(`Failed to ping inactive user ${user.id}:`, e);

@@ -292,6 +292,19 @@ export class WhatsappService {
     try {
       const formattedPhone = to.replace(/^\+/, '');
       
+      // Sanitize all text params — template body cannot have newlines/tabs or >4 consecutive spaces
+      if (components) {
+        for (const comp of components) {
+          if (comp.parameters) {
+            for (const param of comp.parameters) {
+              if (param.type === 'text' && typeof param.text === 'string') {
+                param.text = param.text.replace(/[\n\r\t]+/g, ' ').replace(/ {5,}/g, '    ').trim();
+              }
+            }
+          }
+        }
+      }
+
       const payload: any = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',

@@ -68,7 +68,7 @@ export class NotificationService {
                 parameters: [{ type: 'text', text: message }],
               }];
               sent = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-              if (sent) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+              // Don't update lastMessageTime on template send — only user's reply should open the window
             } else {
               const buttons = reminder.isPersistent
                 ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
@@ -270,8 +270,8 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          const ok = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-          if (ok) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          // Don't update lastMessageTime — only user's reply opens the window
         } else {
           await this.whatsappService.sendWithMenu(user.phone, message);
         }
@@ -286,8 +286,8 @@ _${match.status}_`;
             type: 'body',
             parameters: [{ type: 'text', text: message }],
           }];
-          const ok = await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-          if (ok) await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+          // Don't update lastMessageTime — only user's reply opens the window
         } else {
           await this.whatsappService.sendInteractiveMessage(user.phone, message, [
             { id: 'daily_list_create', title: '📋 Create Daily List' },

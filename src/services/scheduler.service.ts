@@ -119,7 +119,14 @@ export class SchedulerService {
 
   private async processOne(schedule: ReminderSchedule): Promise<boolean> {
     try {
-      await this.notificationService.sendReminder(schedule);
+      const sent = await this.notificationService.sendReminder(schedule);
+
+      if (!sent) {
+        // Not a crash — just couldn't send (quiet hours, daily limit, msg build failed, API reject).
+        // Don't mark completed, don't consume retries — next cron tick will try again.
+        this.logger.warn(`sendReminder returned false for schedule ${schedule.id}, will retry next tick`);
+        return false;
+      }
 
       // Mark completed *after* successful send (at-least-once semantics).
       // Atomic WHERE isCompleted=false prevents double-mark if "done" raced in.

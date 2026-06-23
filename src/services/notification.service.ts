@@ -79,9 +79,11 @@ export class NotificationService {
               const allButtons = buttons.length < 3
                 ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
                 : buttons;
-              await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
-              sent = true;
-              await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+              const msgId = await this.whatsappService.sendInteractiveMessage(user.phone, message, allButtons);
+              sent = !!msgId;
+              if (sent) {
+                await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+              }
             }
           }
           break;

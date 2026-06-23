@@ -8,6 +8,7 @@ export interface Ipo {
   priceBand: string;
   type: 'mainboard' | 'sme' | 'upcoming' | 'filed';
   platform?: string;
+  gmp?: string;
 }
 
 @Injectable()
@@ -20,7 +21,8 @@ export class IpoService {
       const tables = this.extractTables(html);
       const mainboard = this.parseCurrentTable(tables[0] || '', 'mainboard');
       const sme = this.parseCurrentTable(tables[1] || '', 'sme');
-      return [...mainboard, ...sme];
+      const result = [...mainboard, ...sme];
+      return await this.enrichWithGMP(result);
     } catch (e) {
       this.logger.error(`Failed to fetch current IPOs: ${e.message}`);
       return [];
@@ -34,7 +36,8 @@ export class IpoService {
       const mainboard = this.parseUpcomingTable(tables[0] || '', 'mainboard');
       const sme = this.parseUpcomingSMETable(tables[1] || '', 'sme');
       const filed = this.parseFiledTable(tables[2] || '');
-      return [...mainboard, ...sme, ...filed];
+      const result = [...mainboard, ...sme, ...filed];
+      return await this.enrichWithGMP(result);
     } catch (e) {
       this.logger.error(`Failed to fetch upcoming IPOs: ${e.message}`);
       return [];
@@ -61,18 +64,55 @@ export class IpoService {
 
   formatIpoList(ipos: Ipo[], title: string): string {
     if (ipos.length === 0) return `No ${title.toLowerCase()} available right now.`;
-    const lines = ipos.map((ipo, i) =>
-      `${i + 1}. *${ipo.name}* — ${ipo.date}\n   📊 ${ipo.size} | ${ipo.priceBand}`,
-    );
+    const lines = ipos.map((ipo, i) => {
+      const gmpStr = ipo.gmp && ipo.gmp !== '₹0' ? ` | GMP ${ipo.gmp}` : '';
+      return `${i + 1}. *${ipo.name}* — ${ipo.date}\n   📊 ${ipo.size} | ${ipo.priceBand}${gmpStr}`;
+    });
     return `📈 *${title}*\n\n${lines.join('\n\n')}`;
   }
 
   formatIpo(i: Ipo): string {
+    const gmpStr = i.gmp && i.gmp !== '₹0' ? `\n💹 GMP: ${i.gmp}` : '';
     return `📈 *${i.name}*
 📅 ${i.date}
 💰 Size: ${i.size}
-💵 Price: ${i.priceBand}
+💵 Price: ${i.priceBand}${gmpStr}
 🏷️ ${i.type.toUpperCase()}${i.platform ? ` | ${i.platform}` : ''}`;
+  }
+
+  async getGMPData(): Promise<Map<string, string>> {
+    try {
+      const html = await this.fetchPage('https://ipowatch.in/ipo-grey-market-premium-latest-ipo-gmp/');
+      const tables = this.extractTables(html);
+      if (tables.length === 0) return new Map();
+      const rows = this.getRows(tables[0]);
+      const map = new Map<string, string>();
+      for (let i = 1; i < rows.length; i++) {
+        const cells = this.getCells(rows[i]);
+        if (cells.length < 2) continue;
+        const name = this.cleanCell(cells[0]);
+        const gmp = this.cleanCell(cells[1]);
+        if (name && gmp && gmp !== '₹0') {
+          map.set(name.toLowerCase(), gmp);
+        }
+      }
+      return map;
+    } catch (e) {
+      this.logger.error(`Failed to fetch GMP data: ${e.message}`);
+      return new Map();
+    }
+  }
+
+  private async enrichWithGMP(ipos: Ipo[]): Promise<Ipo[]> {
+    try {
+      const gmpMap = await this.getGMPData();
+      return ipos.map(ipo => ({
+        ...ipo,
+        gmp: gmpMap.get(ipo.name.toLowerCase()) || undefined,
+      }));
+    } catch {
+      return ipos;
+    }
   }
 
   private async fetchPage(url: string): Promise<string> {

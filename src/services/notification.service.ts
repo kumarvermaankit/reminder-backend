@@ -170,6 +170,10 @@ _${match.status}_`;
         const diff = closeDate.getTime() - Date.now();
         return diff > 0 && diff <= 86400000 * 2;
       });
+      const formatIpoLine = (i: any) => {
+        const gmpStr = i.gmp && i.gmp !== '₹0' ? ` | GMP ${i.gmp}` : '';
+        return `• *${i.name}* — closes ${i.date}\n  ${i.size} | ${i.priceBand || 'N/A'}${gmpStr}`;
+      };
       if (closing.length === 0) {
         const open = ipos.filter(i => {
           const closeDate = parseCloseDate(i.date.split('-').pop()?.trim() || '');
@@ -178,7 +182,7 @@ _${match.status}_`;
         let msg = `${this.greeting(userName)} 📈 *IPO Deadline Check*\n\n`;
         if (open.length > 0) {
           msg += `No IPOs closing today. Here are the open IPOs:\n\n`;
-          msg += open.map(i => `• *${i.name}* — closes ${i.date}\n  ${i.size} | ${i.priceBand || 'N/A'}`).join('\n\n');
+          msg += open.map(formatIpoLine).join('\n\n');
         } else {
           msg += `No IPOs are currently open for application.\n\nSay *"current IPOs"* or *"upcoming IPOs"* to browse.`;
         }
@@ -186,7 +190,7 @@ _${match.status}_`;
       }
       let msg = `${this.greeting(userName)} 🚨 *IPO Closing Soon!*\n\n`;
       msg += `The following IPO${closing.length > 1 ? 's are' : ' is'} closing today/tomorrow — don't miss out!\n\n`;
-      msg += closing.map(i => `• *${i.name}* — closes ${i.date}\n  ${i.size} | ${i.priceBand || 'N/A'}`).join('\n\n');
+      msg += closing.map(formatIpoLine).join('\n\n');
       msg += `\n\nApply before it closes! Say "done" to stop IPO alerts.`;
       return msg;
     }

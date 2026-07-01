@@ -135,7 +135,7 @@ export class SchedulerService {
         { isCompleted: true, sentAt: new Date(), sentVia: 'whatsapp' },
       );
 
-      await this.handlePersistentReminder(schedule.reminder);
+      await this.handlePersistentReminder(schedule.reminder, schedule.scheduledTime);
       return true;
 
     } catch (error) {
@@ -145,7 +145,7 @@ export class SchedulerService {
     }
   }
 
-  private async handlePersistentReminder(reminder: any): Promise<void> {
+  private async handlePersistentReminder(reminder: any, scheduledTime: Date): Promise<void> {
     const fresh = await this.reminderRepository.findOne({
       where: { id: reminder.id },
       select: ['id', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval', 'maxReminderCount'],
@@ -170,7 +170,8 @@ export class SchedulerService {
       lastRemindedAt: new Date(),
     });
 
-    const nextTime = new Date(Date.now() + fresh.reminderInterval * 60 * 1000);
+    // Use original scheduledTime to prevent daily drift — add interval to the due time, not Date.now()
+    const nextTime = new Date(scheduledTime.getTime() + fresh.reminderInterval * 60 * 1000);
 
     // Guard against duplicate schedule insertion
     const existing = await this.scheduleRepository.findOne({

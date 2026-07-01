@@ -338,15 +338,18 @@ _${match.status}_`;
   @Cron(CronExpression.EVERY_HOUR)
   async pingInactiveUsers(): Promise<void> {
     try {
-      const cutoff = new Date(Date.now() - 23 * 60 * 60 * 1000);
+      const pingCutoff = new Date(Date.now() - 23 * 60 * 60 * 1000);
       const inactives = await this.userRepository.find({
         where: {
           isActive: true,
-          lastMessageTime: LessThan(cutoff),
+          lastMessageTime: LessThan(pingCutoff),
         },
       });
       for (const user of inactives) {
         try {
+          // Skip if we already pinged within the last 23 hours
+          if (user.lastPingTime && user.lastPingTime.getTime() > pingCutoff.getTime()) continue;
+
           const name = (!user.name || user.name === 'there') ? '' : user.name;
           const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
           const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
@@ -368,6 +371,8 @@ _${match.status}_`;
               { id: 'menu_create_reminder', title: '➕ New Reminder' },
             ]);
           }
+          // Track last ping time separately from lastMessageTime
+          await this.userService.updateUser(user.id, { lastPingTime: new Date() });
           this.logger.log(`Inactivity ping sent to user ${user.id}`);
         } catch (e) {
           this.logger.error(`Failed to ping inactive user ${user.id}:`, e);

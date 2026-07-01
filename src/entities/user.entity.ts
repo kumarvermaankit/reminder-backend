@@ -49,6 +49,9 @@ export class User {
   @Column({ name: 'last_message_time', type: 'datetime', nullable: true })
   lastMessageTime: Date;
 
+  @Column({ name: 'last_ping_time', type: 'datetime', nullable: true })
+  lastPingTime: Date;
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

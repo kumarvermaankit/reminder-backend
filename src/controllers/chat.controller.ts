@@ -3,6 +3,7 @@ import { AiService } from '../services/ai.service';
 import { ReminderService } from '../services/reminder.service';
 import { UserService } from '../services/user.service';
 import { WORKFLOWS } from '../constants/workflows';
+import { SYSTEM_QUERY_PROMPT } from '../constants/ai-prompts';
 
 @Controller('chat')
 export class ChatController {
@@ -44,7 +45,7 @@ export class ChatController {
 
       if (parsedReminder.actionType === 'system_query') {
         response = await this.aiService.generateBasicResponse(
-          `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,
+          SYSTEM_QUERY_PROMPT(message, WORKFLOWS),
           undefined,
         );
       } else if (parsedReminder.needsClarification && parsedReminder.clarificationQuestion) {

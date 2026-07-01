@@ -13,9 +13,15 @@ import { StockService } from '../services/stock.service';
 import { CricketService } from '../services/cricket.service';
 import { IpoService } from '../services/ipo.service';
 import { GoogleCalendarService } from '../services/google-calendar.service';
-import { CalorieService } from '../services/calorie.service';
+import { CalorieHandlerService } from '../services/calorie-handler.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
+import {
+  lookupTimezone, guessTimezoneFromLocation,
+  getOffsetMinutes, parseTimeString, localTimeToUtc,
+  resolveDisplayTimezone, formatRelativeTime,
+} from '../utils/timezone';
+import { SYSTEM_QUERY_PROMPT } from '../constants/ai-prompts';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -36,7 +42,7 @@ export class WhatsappController {
     private readonly cricketService: CricketService,
     private readonly ipoService: IpoService,
     private readonly googleCalendarService: GoogleCalendarService,
-    private readonly calorieService: CalorieService,
+    private readonly calorieHandlerService: CalorieHandlerService,
   ) {}
 
   @Post('webhook')
@@ -344,7 +350,7 @@ export class WhatsappController {
       // Calorie tracking setup workflow
       const calorieWf = await this.userContextService.getCalorieWorkflow(user.id);
       if (calorieWf) {
-        const result = await this.handleCalorieWorkflowStep(userPhone, user.id, message, calorieWf);
+        const result = await this.calorieHandlerService.handleWorkflowStep(userPhone, user.id, message, calorieWf);
         if (result) {
           await this.sendAssistantReply(userPhone, user.id, result);
           return;
@@ -370,7 +376,7 @@ export class WhatsappController {
         await this.userService.updateUser(user.id, { name: newName });
         user.name = newName;
 
-        const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+        const tz = lookupTimezone(location) || guessTimezoneFromLocation(location);
         if (tz) {
           await this.userService.updateUser(user.id, { timezone: tz });
           user.timezone = tz;
@@ -400,7 +406,7 @@ export class WhatsappController {
       // Check if user has a pending reminder message and replies with a city/timezone
       const pendingMsg = await this.userContextService.getPendingTimezoneMessage(user.id);
       if (pendingMsg && user.timezone === 'UTC') {
-        const tz = this.lookupTimezone(message) || this.guessTimezoneFromLocation(message);
+        const tz = lookupTimezone(message) || guessTimezoneFromLocation(message);
         if (tz) {
           await this.userService.updateUser(user.id, { timezone: tz });
           user.timezone = tz;
@@ -420,7 +426,7 @@ export class WhatsappController {
         const cityMatch = message.match(/(?:i(?:'| a)m\s+)?(?:from|in|at\s+)?(.+)/i);
         if (cityMatch) {
           const location = cityMatch[1].trim().toLowerCase();
-          const tz = this.lookupTimezone(location) || this.guessTimezoneFromLocation(location);
+          const tz = lookupTimezone(location) || guessTimezoneFromLocation(location);
           if (tz) {
             await this.userService.updateUser(user.id, { timezone: tz });
             user.timezone = tz;
@@ -436,7 +442,7 @@ export class WhatsappController {
       const tzMatch = message.match(/(?:timezone|tz|time zone)\s+(?:is\s+)?(.+)/i);
       if (tzMatch) {
         const tz = tzMatch[1].trim();
-        const validTz = this.lookupTimezone(tz);
+        const validTz = lookupTimezone(tz);
         if (validTz) {
           await this.userService.updateUser(user.id, { timezone: validTz });
           user.timezone = validTz;
@@ -560,7 +566,7 @@ export class WhatsappController {
           await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         }
-        const offsetMin = this.getOffsetMinutes(user.timezone, msgTimestamp);
+        const offsetMin = getOffsetMinutes(user.timezone, msgTimestamp);
         const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
 
         // Start with msgTimestamp converted to user's local date
@@ -568,7 +574,7 @@ export class WhatsappController {
         let hours = 9, minutes = 0; // default time
 
         if (parsed.localTime) {
-          const parsedTime = this.parseTimeString(parsed.localTime);
+          const parsedTime = parseTimeString(parsed.localTime);
           if (parsedTime) { hours = parsedTime.h; minutes = parsedTime.m; }
         }
 
@@ -692,16 +698,16 @@ export class WhatsappController {
           botResponse = await this.handleListEvents(user);
           break;
         case 'calorie_setup':
-          botResponse = await this.handleCalorieSetup(parsed, user);
+          botResponse = await this.calorieHandlerService.handleSetup(parsed, user);
           break;
         case 'log_food':
-          botResponse = await this.handleLogFood(parsed, user);
+          botResponse = await this.calorieHandlerService.handleLogFood(parsed, user);
           break;
         case 'calorie_status':
-          botResponse = await this.handleCalorieStatus(user);
+          botResponse = await this.calorieHandlerService.handleStatus(user);
           break;
         case 'diet_advice':
-          botResponse = await this.handleDietAdvice(user);
+          botResponse = await this.calorieHandlerService.handleDietAdvice(user);
           break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
@@ -1374,8 +1380,8 @@ export class WhatsappController {
     if (parsed.reminderDate && !isNaN(new Date(parsed.reminderDate).getTime())) {
       start = new Date(parsed.reminderDate);
     } else if (parsed.localTime) {
-      const offsetMin = this.getOffsetMinutes(user.timezone, nowRef);
-      const parsedTime = this.localTimeToUtc(parsed.localTime, offsetMin, nowRef);
+      const offsetMin = getOffsetMinutes(user.timezone, nowRef);
+      const parsedTime = localTimeToUtc(parsed.localTime, offsetMin, nowRef);
       if (!parsedTime) return `I couldn't understand the time "${parsed.localTime}". Try something like "tomorrow at 3pm".`;
       start = parsedTime;
     } else if (parsed.intervalMinutes) {
@@ -1445,240 +1451,9 @@ export class WhatsappController {
     return `📅 *Upcoming Events*\n\n${formatted}`;
   }
 
-  // ── Calorie Tracker ───────────────────────────────────────────────
-
-  private async handleCalorieWorkflowStep(userPhone: string, userId: string, message: string, wf: any): Promise<string | null> {
-    type CalState = 'awaiting_weight' | 'awaiting_height' | 'awaiting_age' | 'awaiting_gender' | 'awaiting_activity_level' | 'awaiting_goal' | 'awaiting_target_weight' | 'complete';
-    const next = async (state: CalState, collected: any) => {
-      await this.userContextService.setCalorieWorkflow(userId, { state, collected });
-    };
-
-    const collected = { ...wf.collected };
-    const trimmed = message.trim();
-
-    switch (wf.state) {
-      case 'awaiting_weight': {
-        const w = parseFloat(trimmed);
-        if (isNaN(w) || w < 20 || w > 400) return 'Please enter a valid weight in kg (e.g. "70").';
-        collected.weight = w;
-        await next('awaiting_height', collected);
-        return 'Great! Now what is your height in cm? (e.g. "175")';
-      }
-      case 'awaiting_height': {
-        const h = parseFloat(trimmed);
-        if (isNaN(h) || h < 50 || h > 300) return 'Please enter a valid height in cm (e.g. "175").';
-        collected.height = h;
-        await next('awaiting_age', collected);
-        return 'Thanks! What is your age? (e.g. "25")';
-      }
-      case 'awaiting_age': {
-        const a = parseInt(trimmed, 10);
-        if (isNaN(a) || a < 10 || a > 120) return 'Please enter a valid age (e.g. "25").';
-        collected.age = a;
-        await next('awaiting_gender', collected);
-        return 'Got it! What is your gender? (male / female)';
-      }
-      case 'awaiting_gender': {
-        const g = trimmed.toLowerCase();
-        if (!['male', 'female'].includes(g)) return 'Please enter "male" or "female".';
-        collected.gender = g;
-        await next('awaiting_activity_level', collected);
-        return 'What is your activity level?\n\n• *sedentary* — desk job, little exercise\n• *light* — light exercise 1-3 days/week\n• *moderate* — moderate exercise 3-5 days/week\n• *active* — hard exercise 6-7 days/week\n• *very_active* — intense daily exercise / physical job';
-      }
-      case 'awaiting_activity_level': {
-        const validLevels = ['sedentary', 'light', 'moderate', 'active', 'very_active'];
-        const al = trimmed.toLowerCase().replace(/\s/g, '_');
-        if (!validLevels.includes(al)) return 'Please enter one of: sedentary, light, moderate, active, very_active.';
-        collected.activityLevel = al;
-        await next('awaiting_goal', collected);
-        return 'What is your goal?\n\n• *lose* — lose weight\n• *gain* — gain weight\n• *maintain* — maintain current weight';
-      }
-      case 'awaiting_goal': {
-        const validGoals = ['lose', 'gain', 'maintain'];
-        const gl = trimmed.toLowerCase();
-        if (!validGoals.includes(gl)) return 'Please enter "lose", "gain", or "maintain".';
-        collected.goal = gl;
-        if (gl === 'maintain') {
-          return this.finishCalorieSetup(userPhone, userId, collected);
-        }
-        await next('awaiting_target_weight', collected);
-        return 'What is your target weight in kg? (e.g. "65")';
-      }
-      case 'awaiting_target_weight': {
-        const tw = parseFloat(trimmed);
-        if (isNaN(tw) || tw < 20 || tw > 400) return 'Please enter a valid target weight in kg (e.g. "65").';
-        collected.targetWeight = tw;
-        return this.finishCalorieSetup(userPhone, userId, collected);
-      }
-      default:
-        return null;
-    }
-  }
-
-  private async finishCalorieSetup(userPhone: string, userId: string, collected: any): Promise<string> {
-    await this.userContextService.clearCalorieWorkflow(userId);
-    const bmr = this.calorieService.calculateBMR(collected.weight, collected.height, collected.age, collected.gender);
-    const tdee = this.calorieService.calculateTDEE(bmr, collected.activityLevel);
-    const target = this.calorieService.calculateDailyTarget(tdee, collected.goal, collected.targetWeight);
-
-    await this.calorieService.saveProfile({
-      userId,
-      weight: collected.weight,
-      height: collected.height,
-      age: collected.age,
-      gender: collected.gender,
-      activityLevel: collected.activityLevel,
-      goal: collected.goal,
-      targetWeight: collected.targetWeight,
-      dailyCalorieTarget: target,
-    });
-
-    const goalText = collected.goal === 'lose' ? '📉 Weight Loss' : collected.goal === 'gain' ? '📈 Weight Gain' : '⚖️ Maintain Weight';
-    const targetDetail = collected.targetWeight ? ` → ${collected.targetWeight} kg` : '';
-
-    return `✅ *Calorie Profile Complete!*\n\n` +
-      `${goalText}${targetDetail}\n` +
-      `⚡ BMR: *${bmr}* kcal/day\n` +
-      `🏃 TDEE: *${tdee}* kcal/day\n` +
-      `🎯 Daily Target: *${target}* kcal\n\n` +
-      `Now you can:\n` +
-      `• Log food: *"I ate a chicken sandwich for lunch"*\n` +
-      `• Check status: *"my calories today"*\n` +
-      `• Get advice: *"diet advice"*`;
-  }
-
-  private async handleCalorieSetup(parsed: any, user: any): Promise<string> {
-    const existing = await this.calorieService.getProfile(user.id);
-    if (existing) {
-      await this.userContextService.setCalorieWorkflow(user.id, {
-        state: 'awaiting_weight',
-        collected: {},
-      });
-    } else {
-      await this.userContextService.setCalorieWorkflow(user.id, {
-        state: 'awaiting_weight',
-        collected: {},
-      });
-    }
-    return "Let's set up your calorie tracker! 🥗\n\nWhat is your weight in kg? (e.g. \"70\")";
-  }
-
-  private async handleLogFood(parsed: any, user: any): Promise<string> {
-    const profile = await this.calorieService.getProfile(user.id);
-    if (!profile) {
-      return "Please set up your calorie profile first! Say *\"I want to track calories\"*.";
-    }
-    const foodDesc = parsed.foodDescription || parsed.title || '';
-    if (!foodDesc) return "What did you eat? Tell me like *\"I ate a chicken sandwich for lunch\"*.";
-    const mealType = parsed.mealType || '';
-    // If AI didn't extract calories, estimate based on description
-    let calories = parsed.calories;
-    if (!calories) {
-      calories = this.estimateCalories(foodDesc);
-    }
-    await this.calorieService.logFood(user.id, foodDesc, calories, mealType);
-    const status = await this.calorieService.getStatus(user.id);
-    const remaining = status.remaining;
-    const emoji = remaining < 0 ? '⚠️' : '✅';
-    return `🍽️ Logged: *${foodDesc}* (${calories} kcal)\n${emoji} Remaining today: *${remaining}* kcal / ${status.target}`;
-  }
-
-  private estimateCalories(description: string): number {
-    const lower = description.toLowerCase();
-    let total = 0;
-
-    // Per-item estimates — matched individually and summed
-    const items: [RegExp, number, string?][] = [
-      [/boiled rice|steamed rice|cooked rice/, 200, 'per 100g'],
-      [/rice|biryani|pulao/, 200, 'per 100g'],
-      [/roti|chapati|phulka|naan|paratha/, 120, 'per piece'],
-      [/dal|daal|lentil|rajma|chole|chana|kabuli/, 200, 'per portion'],
-      [/paneer/, 250, 'per 100g'],
-      [/chicken (breast|tikka|curry|salad|biryani)/, 300, 'per portion'],
-      [/egg|omelette/, 150, 'per 2 eggs'],
-      [/fish|prawn|shrimp|salmon|tuna/, 250, 'per 150g'],
-      [/mutton|lamb|beef|pork/, 350, 'per 150g'],
-      [/sandwich|burger/, 400, 'per piece'],
-      [/pizza/, 600, 'per slice'],
-      [/pasta|maggi|noodles|macroni/, 350, 'per plate'],
-      [/milk|doodh/, 120, 'per glass'],
-      [/curd|yogurt|dahi|raita/, 80, 'per small bowl'],
-      [/samosa/, 200, 'per piece'],
-      [/dosa/, 250, 'per piece'],
-      [/idli/, 80, 'per piece'],
-      [/vada|pakora|bhajiya/, 150, 'per piece'],
-      [/sabzi|vegetable|bhaji|subzi/, 100, 'per portion'],
-      [/aloo|potato/, 150, 'per 100g'],
-      [/salad|kheera|cucumber|tomato|onion/, 30, 'per serving'],
-      [/fruit|apple|banana|orange|mango/, 100, 'per piece'],
-      [/tea|chai|coffee/, 50, 'per cup'],
-      [/juice|smoothie|shake/, 150, 'per glass'],
-      [/cake|cookie|biscuit|pastry|donut/, 300, 'per piece'],
-      [/ice.?cream|kulfi/, 250, 'per scoop'],
-      [/chocolate|candy|chips/, 200, 'per pack'],
-      [/soup/, 120, 'per bowl'],
-    ];
-
-    // Check for specific quantities like "150gm rice", "4 roti"
-    const quantityPattern = /(\d+)\s*(g|gm|gram|ml)\s+(.+)/g;
-    let qMatch: RegExpExecArray | null;
-    let matchedAny = false;
-    while ((qMatch = quantityPattern.exec(lower)) !== null) {
-      const grams = parseInt(qMatch[1], 10);
-      const food = qMatch[3].trim();
-      for (const [regex, calPerUnit] of items) {
-        if (regex.test(food)) {
-          const ratio = grams < 50 ? 0.5 : grams / 100;
-          const cal = Math.round(calPerUnit * ratio);
-          total += cal;
-          matchedAny = true;
-        }
-      }
-    }
-
-    // Match remaining items by keyword
-    const alreadyMatched = new Set<number>();
-    for (const [regex, cal] of items) {
-      const match = lower.match(regex);
-      if (match && !alreadyMatched.has(regex.source.charCodeAt(0) || 0)) {
-        // Check if it's a numbered quantity like "4 roti"
-        const fullMatch = match[0];
-        const numPrefix = lower.slice(0, match.index).match(/(\d+)\s*$/);
-        const quantity = numPrefix ? parseInt(numPrefix[1], 10) : 1;
-        total += cal * Math.min(quantity, 10);
-        alreadyMatched.add(regex.source.charCodeAt(0) || 0);
-      }
-    }
-
-    // If nothing matched at all, use default
-    if (total === 0) total = 250;
-
-    return Math.round(total);
-  }
-
-  private async handleCalorieStatus(user: any): Promise<string> {
-    const profile = await this.calorieService.getProfile(user.id);
-    if (!profile) {
-      return "Please set up your calorie profile first! Say *\"I want to track calories\"*.";
-    }
-    const status = await this.calorieService.getStatus(user.id);
-    if (!status || status.meals.length === 0) {
-      return `📊 *Today's Calories*\n\nTarget: *${profile.dailyCalorieTarget}* kcal\nConsumed: *0* kcal\n\nYou haven't logged any food today. Tell me what you ate!`;
-    }
-    const meals = status.meals.map((m, i) =>
-      `${i + 1}. ${m.mealType ? `*${m.mealType}* — ` : ''}${m.description} (${m.calories} kcal)`
-    ).join('\n');
-    const emoji = status.remaining < 0 ? '⚠️' : '✅';
-    return `📊 *Today's Calories*\n\n${meals}\n\nTotal: *${status.consumed}* / *${status.target}* kcal\n${emoji} Remaining: *${status.remaining}* kcal`;
-  }
-
-  private async handleDietAdvice(user: any): Promise<string> {
-    return this.calorieService.getDietAdvice(user.id);
-  }
-
   private async handleSystemQuery(message: string): Promise<string> {
     return this.aiService.generateBasicResponse(
-      `You are a helpful assistant for a reminder app. A user asked: "${message}". Answer their question politely and accurately based on these system capabilities:\n\n${WORKFLOWS}\n\nKeep it concise, friendly, and use emoji. Only answer what the system can actually do — don't make things up.`,
+      SYSTEM_QUERY_PROMPT(message, WORKFLOWS),
       undefined,
     );
   }
@@ -1743,8 +1518,8 @@ export class WhatsappController {
                 await this.todoListService.updateItemReminderAt(item.id, reminderDate);
                 count++;
               }
-              const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
-              const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
+              const displayTz = resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
+              const timeStr = formatRelativeTime(reminderDate, displayTz, nowRef);
               return `✅ Reminders set for ${count} item${count > 1 ? 's' : ''} in "${listTitle}" ${timeStr}!`;
             }
             return `All items in "${listTitle}" are already done!`;
@@ -1785,8 +1560,8 @@ export class WhatsappController {
           }
         }
 
-        const displayTz = this.resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
-        const timeStr = this.formatRelativeTime(reminderDate, displayTz, nowRef);
+        const displayTz = resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
+        const timeStr = formatRelativeTime(reminderDate, displayTz, nowRef);
         const repeatInfo = parsed.intervalMinutes
           ? ` (repeats every ${parsed.intervalMinutes} min)`
           : '';
@@ -1894,127 +1669,6 @@ export class WhatsappController {
     }
   }
 
-  private lookupTimezone(input: string): string | null {
-    const aliases: Record<string, string> = {
-      'ist': 'Asia/Kolkata',
-      'pst': 'America/Los_Angeles',
-      'pdt': 'America/Los_Angeles',
-      'cst': 'America/Chicago',
-      'cdt': 'America/Chicago',
-      'est': 'America/New_York',
-      'edt': 'America/New_York',
-      'gmt': 'GMT',
-      'utc': 'UTC',
-      'aest': 'Australia/Sydney',
-      'aedt': 'Australia/Sydney',
-      'cet': 'Europe/Paris',
-      'bst': 'Europe/London',
-    };
-    let key = input.toLowerCase().trim();
-
-    // Strip common prefixes like "utc", "gmt", "etc/gmt"
-    key = key.replace(/^(utc|gmt|etc\/gmt)\s*/i, '');
-    if (aliases[key]) return aliases[key];
-
-    // Try parsing numeric UTC offset (e.g. "+5:30", "+0530", "-5", "5:30")
-    const offsetMatch = key.match(/^([+-])?\s*(\d{1,2})(?::(\d{2})|(\d{2}))?$/);
-    if (offsetMatch) {
-      const sign = offsetMatch[1] === '-' ? -1 : 1;
-      const hours = parseInt(offsetMatch[2], 10);
-      const minutes = parseInt(offsetMatch[3] || offsetMatch[4] || '0', 10);
-      const totalMinutes = sign * (hours * 60 + minutes);
-      const tz = this.commonOffsetToIana(totalMinutes);
-      if (tz) return tz;
-    }
-
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: input });
-      return input;
-    } catch {
-      return null;
-    }
-  }
-
-  /** Map a UTC offset in minutes to the most likely IANA timezone. */
-  private commonOffsetToIana(offsetMinutes: number): string | null {
-    const rounded = Math.round(offsetMinutes / 15) * 15;
-    const map: Record<string, string> = {
-      '-720': 'Pacific/Midway',
-      '-660': 'Pacific/Honolulu',
-      '-600': 'America/Anchorage',
-      '-540': 'America/Los_Angeles',
-      '-480': 'America/Denver',
-      '-420': 'America/Chicago',
-      '-360': 'America/New_York',
-      '-300': 'America/Halifax',
-      '-270': 'America/St_Johns',
-      '-240': 'America/Sao_Paulo',
-      '-180': 'America/Argentina/Buenos_Aires',
-      '-60': 'Atlantic/Azores',
-      '0': 'UTC',
-      '60': 'Europe/Paris',
-      '120': 'Europe/Athens',
-      '180': 'Europe/Moscow',
-      '210': 'Asia/Tehran',
-      '240': 'Asia/Dubai',
-      '270': 'Asia/Kabul',
-      '300': 'Asia/Karachi',
-      '330': 'Asia/Kolkata',
-      '345': 'Asia/Kathmandu',
-      '360': 'Asia/Dhaka',
-      '390': 'Asia/Yangon',
-      '420': 'Asia/Bangkok',
-      '480': 'Asia/Shanghai',
-      '510': 'Australia/Eucla',
-      '540': 'Asia/Tokyo',
-      '570': 'Australia/Adelaide',
-      '600': 'Australia/Sydney',
-      '630': 'Australia/Lord_Howe',
-      '660': 'Pacific/Noumea',
-      '720': 'Pacific/Auckland',
-      '780': 'Pacific/Chatham',
-    };
-    return map[String(rounded)] || null;
-  }
-
-  private guessTimezoneFromLocation(location: string): string | null {
-    const cityMap: Record<string, string> = {
-      'mumbai': 'Asia/Kolkata',
-      'delhi': 'Asia/Kolkata',
-      'new delhi': 'Asia/Kolkata',
-      'bangalore': 'Asia/Kolkata',
-      'bengaluru': 'Asia/Kolkata',
-      'chennai': 'Asia/Kolkata',
-      'hyderabad': 'Asia/Kolkata',
-      'kolkata': 'Asia/Kolkata',
-      'pune': 'Asia/Kolkata',
-      'ahmedabad': 'Asia/Kolkata',
-      'jaipur': 'Asia/Kolkata',
-      'london': 'Europe/London',
-      'manchester': 'Europe/London',
-      'new york': 'America/New_York',
-      'nyc': 'America/New_York',
-      'los angeles': 'America/Los_Angeles',
-      'la': 'America/Los_Angeles',
-      'san francisco': 'America/Los_Angeles',
-      'chicago': 'America/Chicago',
-      'dubai': 'Asia/Dubai',
-      'singapore': 'Asia/Singapore',
-      'sydney': 'Australia/Sydney',
-      'melbourne': 'Australia/Sydney',
-      'toronto': 'America/Toronto',
-      'paris': 'Europe/Paris',
-      'berlin': 'Europe/Berlin',
-      'tokyo': 'Asia/Tokyo',
-      'seoul': 'Asia/Seoul',
-      'shanghai': 'Asia/Shanghai',
-      'beijing': 'Asia/Shanghai',
-    };
-    const loc = location.toLowerCase().trim();
-    return cityMap[loc] || null;
-  }
-
-  /** Send text to user; appends example tips by default. */
   private async sendAssistantReply(
     userPhone: string,
     userId: string,
@@ -2024,152 +1678,5 @@ export class WhatsappController {
     const body = withTips ? appendChatTips(text) : text;
     await this.whatsappService.sendWithMenu(userPhone, body);
     await this.userContextService.pushMessage(userId, 'assistant', body);
-  }
-
-  private static readonly DISPLAY_TIMEZONES = [
-    'Asia/Kolkata', 'Asia/Kathmandu', 'Asia/Dhaka', 'Asia/Karachi', 'Asia/Dubai',
-    'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul',
-    'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'America/New_York',
-    'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-    'Australia/Sydney', 'Pacific/Auckland', 'UTC',
-  ];
-
-  private localDateKey(d: Date, timeZone: string): string {
-    return d.toLocaleDateString('en-CA', { timeZone });
-  }
-
-  private calendarDayDiff(fromKey: string, toKey: string): number {
-    const from = new Date(`${fromKey}T12:00:00Z`);
-    const to = new Date(`${toKey}T12:00:00Z`);
-    return Math.round((to.getTime() - from.getTime()) / 86400000);
-  }
-
-  /** Extract time string from AI localTime (already clean). */
-  private parseTimeString(timeStr: string): { h: number; m: number } | null {
-    const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-    if (!match) return null;
-    let h = parseInt(match[1], 10);
-    const m = parseInt(match[2] || '0', 10);
-    const mer = match[3];
-    if (mer) {
-      if (mer.toLowerCase() === 'pm' && h !== 12) h += 12;
-      if (mer.toLowerCase() === 'am' && h === 12) h = 0;
-    }
-    if (h > 23 || m > 59) return null;
-    return { h, m };
-  }
-
-  /** Convert a local wall-clock string to UTC Date given offset minutes. */
-  private localTimeToUtc(timeStr: string, offsetMin: number, msgTimestamp: Date): Date | null {
-    const parsed = this.parseTimeString(timeStr);
-    if (!parsed) return null;
-    const localMin = parsed.h * 60 + parsed.m;
-    const utcMin = (localMin - offsetMin + 1440) % 1440;
-    const dayStart = Date.UTC(msgTimestamp.getUTCFullYear(), msgTimestamp.getUTCMonth(), msgTimestamp.getUTCDate(), 0, 0, 0, 0);
-    const utcDate = new Date(dayStart + utcMin * 60000);
-    this.logger.log(`localTimeToUtc: "${timeStr}" offset=${offsetMin} localMin=${localMin} utcMin=${utcMin} → ${utcDate.toISOString()}`);
-    if (utcDate <= msgTimestamp) {
-      utcDate.setDate(utcDate.getDate() + 1);
-      this.logger.log(`  → advanced to next day: ${utcDate.toISOString()}`);
-    }
-    return utcDate;
-  }
-
-  /** Get UTC offset minutes for an IANA timezone at a given date. */
-  private getOffsetMinutes(timezone: string, date: Date): number {
-    try {
-      const ms = date.getTime();
-      const tzStr = date.toLocaleString('en-US', {
-        timeZone: timezone,
-        hour12: false,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-      });
-      const [datePart, timePart] = tzStr.split(', ');
-      const [m, d, y] = datePart.split('/');
-      const [h, mn, s] = timePart.split(':');
-      const tzDate = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
-      return (tzDate.getTime() - ms) / 60000;
-    } catch {
-      return 0;
-    }
-  }
-
-  /** When profile timezone is UTC, pick IANA zone that best matches msg vs reminder calendar. */
-  private resolveDisplayTimezone(
-    userTimezone: string,
-    msgRef: Date,
-    targetDate: Date,
-  ): string {
-    if (userTimezone && userTimezone !== 'UTC') return userTimezone;
-
-    let bestTz = 'UTC';
-    let bestScore = -1;
-
-    for (const timeZone of WhatsappController.DISPLAY_TIMEZONES) {
-      if (timeZone === 'UTC') continue;
-      const dayDiff = this.calendarDayDiff(
-        this.localDateKey(msgRef, timeZone),
-        this.localDateKey(targetDate, timeZone),
-      );
-      if (dayDiff < 0 || dayDiff > 14) continue;
-
-      let score = dayDiff === 0 ? 15 : dayDiff === 1 ? 5 : 0;
-      const localHour = Number(
-        targetDate.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
-      );
-      if (localHour >= 7 && localHour <= 22) score += 10;
-      else if (localHour < 6 || localHour >= 23) score -= 10;
-
-      // Also check that msg time falls in reasonable hours for this timezone
-      const msgHour = Number(
-        msgRef.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: false }),
-      );
-      if (msgHour < 6 || msgHour >= 23) score -= 5;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestTz = timeZone;
-      }
-    }
-    return bestTz;
-  }
-
-  private formatRelativeTime(date: Date, timezone: string = 'UTC', nowRef?: Date): string {
-    const now = nowRef || new Date();
-    const diffMs = date.getTime() - now.getTime();
-    const diffMin = Math.round(diffMs / 60000);
-
-    const timeStr = date.toLocaleTimeString('en-US', {
-      timeZone: timezone,
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-    const dayDiff = this.calendarDayDiff(
-      this.localDateKey(now, timezone),
-      this.localDateKey(date, timezone),
-    );
-
-    if (dayDiff === 0) {
-      if (diffMin < 1) return 'in less than a minute';
-      if (diffMin < 60) return `in ${diffMin} minutes`;
-      return `today at ${timeStr}`;
-    }
-    if (dayDiff === 1) return `tomorrow at ${timeStr}`;
-    if (dayDiff > 1 && dayDiff <= 7) {
-      const weekday = date.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'long' });
-      return `on ${weekday} at ${timeStr}`;
-    }
-    return date.toLocaleDateString('en-US', {
-      timeZone: timezone,
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
   }
 }

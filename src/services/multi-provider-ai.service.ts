@@ -4,6 +4,13 @@ import { Together } from 'together-ai';
 import Replicate from 'replicate';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
+import {
+  SYSTEM_MESSAGE_PARSE_REMINDER,
+  SYSTEM_MESSAGE_FRIENDLY_AI,
+  SYSTEM_MESSAGE_DETECT_COMPLETION_UNIFIED,
+  MULTI_PROVIDER_PARSE_PROMPT,
+  MULTI_PROVIDER_GENERATE_RESPONSE_PROMPT,
+} from '../constants/ai-prompts';
 
 interface AIProvider {
   name: string;
@@ -248,27 +255,12 @@ export class MultiProviderAiService {
   }
 
   private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
-    const prompt = `Parse reminder: "${userInput}"
-Current time: ${new Date().toISOString()}
-
-Return JSON:
-{
-  "title": "brief title",
-  "description": "description",
-  "reminderDate": "ISO datetime",
-  "priority": "low|medium|high",
-  "category": "work|personal|health|finance|other",
-  "confidence": 0.0-1.0,
-  "needsClarification": true/false,
-  "clarificationQuestion": "if needed"
-}
-
-Rules: morning=9am, afternoon=2pm, evening=6pm, tomorrow=10am`;
+    const prompt = MULTI_PROVIDER_PARSE_PROMPT(userInput);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are a reminder assistant. Return valid JSON.' },
+        { role: 'system', content: SYSTEM_MESSAGE_PARSE_REMINDER },
         { role: 'user', content: prompt }
       ],
       temperature: 0.3,
@@ -287,15 +279,12 @@ Rules: morning=9am, afternoon=2pm, evening=6pm, tomorrow=10am`;
   }
 
   private async parseWithTogether(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
-    const prompt = `Parse reminder: "${userInput}"
-Current time: ${new Date().toISOString()}
-
-Return JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+    const prompt = MULTI_PROVIDER_PARSE_PROMPT(userInput);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are a reminder assistant. Return valid JSON.' },
+        { role: 'system', content: SYSTEM_MESSAGE_PARSE_REMINDER },
         { role: 'user', content: prompt }
       ],
       temperature: 0.3,
@@ -313,16 +302,13 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   }
 
   private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
-    const prompt = `Parse reminder: "${userInput}"
-Current time: ${new Date().toISOString()}
-
-Return JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+    const prompt = MULTI_PROVIDER_PARSE_PROMPT(userInput);
 
     const response = await provider.client.run(
       provider.models.parsing,
       {
         input: {
-          prompt: `You are a reminder assistant. Return valid JSON.\n\n${prompt}`,
+          prompt: SYSTEM_MESSAGE_PARSE_REMINDER + '\n\n' + prompt,
           max_tokens: 300,
           temperature: 0.3
         }
@@ -342,10 +328,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   private async parseWithGemini(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
     
-    const prompt = `Parse reminder: "${userInput}"
-Current time: ${new Date().toISOString()}
-
-Return JSON with title, description, reminderDate (ISO), priority, category, confidence, needsClarification`;
+    const prompt = MULTI_PROVIDER_PARSE_PROMPT(userInput);
 
     const response = await model.generateContent(prompt);
     const content = response.response.text();
@@ -394,14 +377,12 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   }
 
   private async generateWithGroq(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
-      ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". Ask for reminder details:`;
+    const prompt = MULTI_PROVIDER_GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: 'You are a friendly AI assistant. Be casual and use emojis.' },
+        { role: 'system', content: SYSTEM_MESSAGE_FRIENDLY_AI },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
@@ -412,14 +393,12 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   }
 
   private async generateWithTogether(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
-      ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". Ask for reminder details:`;
+    const prompt = MULTI_PROVIDER_GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: 'You are a friendly AI assistant. Be casual and use emojis.' },
+        { role: 'system', content: SYSTEM_MESSAGE_FRIENDLY_AI },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
@@ -430,15 +409,13 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   }
 
   private async generateWithReplicate(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
-      ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". Ask for reminder details:`;
+    const prompt = MULTI_PROVIDER_GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await provider.client.run(
       provider.models.response,
       {
         input: {
-          prompt: `You are a friendly AI assistant. Be casual and use emojis.\n\n${prompt}`,
+          prompt: SYSTEM_MESSAGE_FRIENDLY_AI + '\n\n' + prompt,
           max_tokens: 100,
           temperature: 0.8
         }
@@ -451,9 +428,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   private async generateWithGemini(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
     const model = provider.client.getGenerativeModel({ model: provider.models.response });
     
-    const prompt = reminder 
-      ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". Ask for reminder details:`;
+    const prompt = MULTI_PROVIDER_GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await model.generateContent(prompt);
     return response.response.text() || "I got you! I'll help set that reminder.";
@@ -500,10 +475,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
       messages: [
-        { 
-          role: 'system', 
-          content: `Detect task completion. User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}` 
-        },
+        { role: 'system', content: SYSTEM_MESSAGE_DETECT_COMPLETION_UNIFIED(remindersText) },
         { role: 'user', content: userInput }
       ],
       temperature: 0.3,
@@ -521,10 +493,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
       messages: [
-        { 
-          role: 'system', 
-          content: `Detect task completion. User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}` 
-        },
+        { role: 'system', content: SYSTEM_MESSAGE_DETECT_COMPLETION_UNIFIED(remindersText) },
         { role: 'user', content: userInput }
       ],
       temperature: 0.3,
@@ -538,11 +507,13 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
   private async detectCompletionWithReplicate(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
     
+    const prompt = `Detect task completion. User reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`;
+    
     const response = await provider.client.run(
       provider.models.completion,
       {
         input: {
-          prompt: `Detect task completion. User reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`,
+          prompt,
           max_tokens: 150,
           temperature: 0.3
         }
@@ -557,12 +528,7 @@ Return JSON with title, description, reminderDate (ISO), priority, category, con
     const model = provider.client.getGenerativeModel({ model: provider.models.completion });
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
     
-    const prompt = `Detect task completion. User reminders:
-${remindersText}
-
-User: ${userInput}
-
-Return JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`;
+    const prompt = `Detect task completion. User reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "id", "response": "confirmation"}`;
 
     const response = await model.generateContent(prompt);
     const content = response.response.text();

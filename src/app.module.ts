@@ -26,6 +26,7 @@ import { CricketService } from './services/cricket.service';
 import { IpoService } from './services/ipo.service';
 import { GoogleCalendarService } from './services/google-calendar.service';
 import { CalorieService } from './services/calorie.service';
+import { CalorieHandlerService } from './services/calorie-handler.service';
 import { GoogleCalendarController } from './controllers/google-calendar.controller';
 import { GoogleToken } from './entities/google-token.entity';
 import { Reminder } from './entities/reminder.entity';
@@ -58,6 +59,6 @@ import { FoodLog } from './entities/food-log.entity';
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService],
 })
 export class AppModule {}

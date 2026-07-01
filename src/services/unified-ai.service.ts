@@ -3,6 +3,14 @@ import { Groq } from 'groq-sdk';
 import { Together } from 'together-ai';
 import Replicate from 'replicate';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
+import {
+  SYSTEM_MESSAGE_PARSE_ALWAYS_JSON,
+  SYSTEM_MESSAGE_CASUAL_AI,
+  SYSTEM_MESSAGE_JSON_AI,
+  UNIFIED_PARSE_PROMPT,
+  UNIFIED_GENERATE_RESPONSE_PROMPT,
+  UNIFIED_DETECT_COMPLETION_PROMPT,
+} from '../constants/ai-prompts';
 
 interface AIProvider {
   name: string;
@@ -159,54 +167,14 @@ export class UnifiedAiService {
 
   // Unified Prompt Templates - Same prompts for all providers
   private readonly PROMPTS = {
-    parseReminder: (userInput: string) => `Parse this reminder request: "${userInput}"
-    
-Current date and time: ${new Date().toISOString()}
+    parseReminder: (userInput: string) => UNIFIED_PARSE_PROMPT(userInput),
 
-Return JSON with:
-{
-  "title": "brief title",
-  "description": "full description", 
-  "reminderDate": "ISO datetime",
-  "priority": "low|medium|high",
-  "category": "work|personal|health|finance|other",
-  "confidence": 0.0-1.0,
-  "needsClarification": true/false,
-  "clarificationQuestion": "if needed"
-}
-
-Rules:
-- morning=9am, afternoon=2pm, evening=6pm, night=8pm
-- tomorrow/today=10am default
-- medicine=daily morning
-- Only ask if truly unclear
-- Be confident when you can infer`,
-
-    generateResponse: (userInput: string, reminder?: ParsedReminder) => {
-      if (reminder) {
-        return `User said: "${userInput}"
-I understood: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}
-Generate a friendly, casual confirmation response.`;
-      } else {
-        return `User said: "${userInput}"
-Generate a friendly response asking for more details about the reminder.`;
-      }
-    },
+    generateResponse: (userInput: string, reminder?: ParsedReminder) =>
+      UNIFIED_GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate),
 
     detectCompletion: (userInput: string, userReminders: any[]) => {
       const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}`).join('\n');
-      return `Detect task completion. User reminders:
-${remindersText}
-
-User: ${userInput}
-
-Return JSON: {"completed": true/false, "reminderId": "id", "response": "casual confirmation"}
-
-Look for phrases like:
-- "done with", "finished", "completed"
-- "don't need that reminder anymore"
-- "already did that"
-- "cancel that reminder"`;
+      return UNIFIED_DETECT_COMPLETION_PROMPT(userInput, remindersText);
     }
   };
 
@@ -303,7 +271,7 @@ Look for phrases like:
 
     try {
       const prompt = this.PROMPTS.parseReminder(userInput);
-      const systemPrompt = 'You are a reminder assistant. Always return valid JSON.';
+      const systemPrompt = SYSTEM_MESSAGE_PARSE_ALWAYS_JSON;
       
       const response = await this.callAI(provider, prompt, systemPrompt, true);
       const parsed = JSON.parse(response);
@@ -337,7 +305,7 @@ Look for phrases like:
 
     try {
       const prompt = this.PROMPTS.generateResponse(userInput, reminder);
-      const systemPrompt = 'You are a friendly, casual AI assistant. Use emojis and be conversational. Keep responses short and natural.';
+      const systemPrompt = SYSTEM_MESSAGE_CASUAL_AI;
       
       const response = await this.callAI(provider, prompt, systemPrompt, false);
       return response || "I got you! I'll help set that reminder.";
@@ -356,7 +324,7 @@ Look for phrases like:
 
     try {
       const prompt = this.PROMPTS.detectCompletion(userInput, userReminders);
-      const systemPrompt = 'You are a friendly AI assistant. Return valid JSON.';
+      const systemPrompt = SYSTEM_MESSAGE_JSON_AI;
       
       const response = await this.callAI(provider, prompt, systemPrompt, true);
       return response ? JSON.parse(response) : { completed: false, response: "Got it!" };

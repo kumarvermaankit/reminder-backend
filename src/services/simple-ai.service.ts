@@ -7,6 +7,18 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
 import { WORKFLOWS } from '../constants/workflows';
+import {
+  SYSTEM_MESSAGE_PARSE_REMINDER,
+  SYSTEM_MESSAGE_DETECT_INTENT,
+  SYSTEM_MESSAGE_FRIENDLY_AI_WITH_WORKFLOWS,
+  SYSTEM_MESSAGE_DETECT_COMPLETION,
+  SYSTEM_MESSAGE_DETECT_COMPLETION_SIMPLE,
+  SYSTEM_MESSAGE_DETECT_COMPLETION_GEMINI,
+  SYSTEM_MESSAGE_DETECT_COMPLETION_REPLICATE,
+  GENERATE_RESPONSE_PROMPT,
+  GENERATE_RESPONSE_PROMPT_GEMINI,
+  GENERATE_RESPONSE_PROMPT_TOGETHER,
+} from '../constants/ai-prompts';
 
 interface AIProvider {
   name: string;
@@ -354,7 +366,7 @@ export class SimpleAiService {
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are a reminder assistant. Return valid JSON.' },
+        { role: 'system', content: SYSTEM_MESSAGE_PARSE_REMINDER },
         { role: 'user', content: prompt }
       ],
       temperature: 0.3,
@@ -438,7 +450,7 @@ RULES:
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
       messages: [
-        { role: 'system', content: 'You are an assistant that detects intent: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, calorie_setup, log_food, calorie_status, diet_advice, unknown. Return valid JSON.' },
+        { role: 'system', content: SYSTEM_MESSAGE_DETECT_INTENT },
         { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoListTitles, deletePattern, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees, foodDescription, mealType, calories, weight, height, age, gender, activityLevel, goal, targetWeight\n\nRULES:\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Leave reminderDate empty.\n- Relative time ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Leave reminderDate and localTime empty.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- For calendar events: extract attendee emails into attendees array.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]\n- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "my events" → list_events\n- "delete my shopping list" → actionType=delete_list, todoListTitle="shopping list"\n- "delete shopping list and work list" → actionType=delete_list, todoListTitles=["shopping list", "work list"]\n- "delete all daily lists" → actionType=delete_list, deletePattern="daily"\n- "I want to track calories" → actionType=calorie_setup\n- "I ate a chicken sandwich for lunch" → actionType=log_food, foodDescription="chicken sandwich", mealType="lunch"\n- "log 350 calories paneer" → actionType=log_food, foodDescription="paneer", calories=350\n- "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total meal calories, set calories to your best estimate\n- "how many calories today" → actionType=calorie_status\n- "give me diet advice" → actionType=diet_advice` }
       ],
       temperature: 0.3,
@@ -505,14 +517,12 @@ RULES:
   }
 
   private async generateWithGroq(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder
-      ? `User said: "${userInput}"\nI understood this as a reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}\nGenerate a friendly, casual confirmation response.`
-      : `User said: "${userInput}"\nThis doesn't seem like a reminder. Just respond conversationally and naturally without mentioning reminders.`;
+    const prompt = GENERATE_RESPONSE_PROMPT(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}` },
+        { role: 'system', content: SYSTEM_MESSAGE_FRIENDLY_AI_WITH_WORKFLOWS(WORKFLOWS) },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
@@ -525,9 +535,7 @@ RULES:
   private async generateWithGemini(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
     const model = provider.client.getGenerativeModel({ model: provider.models.response });
     
-    const prompt = reminder 
-      ? `User: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Friendly confirmation:`
-      : `User: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
+    const prompt = GENERATE_RESPONSE_PROMPT_GEMINI(userInput, reminder?.title, reminder?.reminderDate);
 
     const fullPrompt = `System capabilities:\n${WORKFLOWS}\n\n${prompt}`;
     const response = await model.generateContent(fullPrompt);
@@ -541,14 +549,12 @@ RULES:
   }
 
   private async generateWithTogether(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
-      ? `User said: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Generate a friendly confirmation response.`
-      : `User said: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
+    const prompt = GENERATE_RESPONSE_PROMPT_TOGETHER(userInput, reminder?.title, reminder?.reminderDate);
 
     const response = await provider.client.chat.completions.create({
       model: provider.models.response,
       messages: [
-        { role: 'system', content: `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}` },
+        { role: 'system', content: SYSTEM_MESSAGE_FRIENDLY_AI_WITH_WORKFLOWS(WORKFLOWS) },
         { role: 'user', content: prompt }
       ],
       temperature: 0.8,
@@ -559,11 +565,9 @@ RULES:
   }
 
   private async generateWithReplicate(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
-    const prompt = reminder 
-      ? `User said: "${userInput}". Reminder: ${reminder.title} at ${reminder.reminderDate?.toLocaleString()}. Generate a friendly confirmation response.`
-      : `User said: "${userInput}". This is not a reminder. Respond conversationally without mentioning reminders.`;
+    const prompt = GENERATE_RESPONSE_PROMPT_TOGETHER(userInput, reminder?.title, reminder?.reminderDate);
 
-    const fullPrompt = `You are a friendly AI assistant. Be casual and use emojis.\n\nHere are your capabilities:\n${WORKFLOWS}\n\n${prompt}`;
+    const fullPrompt = SYSTEM_MESSAGE_FRIENDLY_AI_WITH_WORKFLOWS(WORKFLOWS) + '\n\n' + prompt;
     const response = await provider.client.run(provider.models.response, {
       input: {
         prompt: fullPrompt,
@@ -581,12 +585,7 @@ RULES:
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
       messages: [
-        { 
-          role: 'system', 
-          content: `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" without specifying which one, match the LAST/most recent reminder in the list. The reminderId MUST be one of the IDs listed below - never invent one.
-
-User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}` 
-        },
+        { role: 'system', content: SYSTEM_MESSAGE_DETECT_COMPLETION(remindersText) },
         { role: 'user', content: userInput }
       ],
       temperature: 0.3,
@@ -601,13 +600,7 @@ User reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "rem
     const model = provider.client.getGenerativeModel({ model: provider.models.completion });
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
-    const prompt = `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.
-User reminders:
-${remindersText}
-
-User: ${userInput}
-
-Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}`;
+    const prompt = SYSTEM_MESSAGE_DETECT_COMPLETION_GEMINI(remindersText, userInput);
 
     const response = await model.generateContent(prompt);
     let content = response.response.text();
@@ -629,10 +622,7 @@ Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_c
     const response = await provider.client.chat.completions.create({
       model: provider.models.completion,
       messages: [
-        { 
-          role: 'system', 
-          content: `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.\n\nUser reminders:\n${remindersText}\n\nReturn JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}` 
-        },
+        { role: 'system', content: SYSTEM_MESSAGE_DETECT_COMPLETION_SIMPLE(remindersText) },
         { role: 'user', content: userInput }
       ],
       temperature: 0.3,
@@ -646,7 +636,7 @@ Return JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_c
   private async detectCompletionWithReplicate(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
     const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
     
-    const prompt = `You detect if a user is marking a task as done. Understand phrases like "done", "completed", "finished", "all done", "stop reminding", "cancel". If user says "done" with a single pending reminder, mark it as done. The reminderId MUST be one of the IDs listed below - never invent one.\n\nUser reminders:\n${remindersText}\n\nUser: ${userInput}\n\nReturn JSON: {"completed": true/false, "reminderId": "one_of_ids_above_only_if_completed", "response": "confirmation"}`;
+    const prompt = SYSTEM_MESSAGE_DETECT_COMPLETION_REPLICATE(remindersText, userInput);
     
     const response = await provider.client.run(provider.models.completion, {
       input: {

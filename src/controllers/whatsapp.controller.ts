@@ -572,6 +572,19 @@ export class WhatsappController {
         // Start with msgTimestamp converted to user's local date
         const localNow = new Date(msgTimestamp.getTime() + offsetMin * 60000);
         let hours = 9, minutes = 0; // default time
+        let year = localNow.getUTCFullYear();
+        let month = localNow.getUTCMonth();
+        let day = localNow.getUTCDate();
+
+        // If AI provided a specific date (e.g. "2026-07-28"), use it instead of today
+        if (parsed.reminderDate) {
+          const d = new Date(parsed.reminderDate);
+          if (!isNaN(d.getTime())) {
+            year = d.getUTCFullYear();
+            month = d.getUTCMonth();
+            day = d.getUTCDate();
+          }
+        }
 
         if (parsed.localTime) {
           const parsedTime = parseTimeString(parsed.localTime);
@@ -579,7 +592,7 @@ export class WhatsappController {
         }
 
         // Build the target date in user's local time
-        let targetLocal = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), hours, minutes, 0, 0));
+        let targetLocal = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
         // If dayOfWeek, adjust to next occurrence
         if (parsed.dayOfWeek) {
@@ -592,8 +605,8 @@ export class WhatsappController {
             this.logger.log(`dayOfWeek: "${parsed.dayOfWeek}" → next in ${daysUntil} days`);
             if (!parsed.intervalMinutes) parsed.intervalMinutes = 10080;
           }
-        } else {
-          // No dayOfWeek: if the computed time is in the past, advance to next day
+        } else if (!parsed.reminderDate) {
+          // No dayOfWeek and no specific date: if the computed time is in the past, advance to next day
           if (targetLocal <= localNow) {
             targetLocal.setUTCDate(targetLocal.getUTCDate() + 1);
           }

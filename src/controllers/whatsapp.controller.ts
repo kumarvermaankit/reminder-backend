@@ -90,30 +90,38 @@ export class WhatsappController {
     }
 
     const phoneNumber = messageData.metadata?.display_phone_number;
+    this.logger.log(`=== MESSAGE RECEIVED: ${messages.length} message(s) from metadata phone=${phoneNumber}`);
 
     for (const message of messages) {
       const msgId = message.id;
+      const from = message.from;
       if (this.processedMessages.has(msgId)) {
-        this.logger.log(`Duplicate message ${msgId} skipped`);
+        this.logger.log(`Duplicate message ${msgId} from ${from} skipped`);
         continue;
       }
       this.processedMessages.add(msgId);
       setTimeout(() => this.processedMessages.delete(msgId), 300000);
 
-      const from = message.from;
       const replyToMsgId = message.context?.id || null;
       const msgTimestamp = message.timestamp
         ? new Date(parseInt(message.timestamp) * 1000)
         : new Date();
-      this.logger.log(`WhatsApp msgTimestamp raw=${message.timestamp} parsed=${msgTimestamp.toISOString()}`);
+      this.logger.log(`WhatsApp msg: from=${from} type=${message.type} msgId=${msgId} timestamp=${msgTimestamp.toISOString()}`);
 
       if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
-        await this.handleButtonReply(from, message.interactive.button_reply, phoneNumber, replyToMsgId);
+        const btn = message.interactive.button_reply;
+        this.logger.log(`Button reply: from=${from} id="${btn.id}" title="${btn.title}"`);
+        await this.handleButtonReply(from, btn, phoneNumber, replyToMsgId);
       } else if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
-        await this.handleListReply(from, message.interactive.list_reply, msgTimestamp, msgId);
+        const list = message.interactive.list_reply;
+        this.logger.log(`List reply: from=${from} id="${list.id}" title="${list.title}"`);
+        await this.handleListReply(from, list, msgTimestamp, msgId);
       } else if (message.type === 'text') {
         const text = message.text.body;
+        this.logger.log(`Text message: from=${from} text="${text}"`);
         await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp, msgId);
+      } else {
+        this.logger.log(`Unhandled message type: ${message.type} from=${from}`);
       }
     }
   }

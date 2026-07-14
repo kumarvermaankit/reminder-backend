@@ -322,7 +322,7 @@ export class SimpleAiService {
 
   private async parseWithGroq(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse: "${userInput}"
-    Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, calorie_setup, log_food, calorie_status, diet_advice, unknown.
+    Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, calorie_setup, log_food, calorie_status, diet_advice, make_payment, unknown.
     Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoListTitles, deletePattern, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees, foodDescription, mealType, calories, weight, height, age, gender, activityLevel, goal, targetWeight
     RULES:
     - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Do NOT set reminderDate for time-only requests.
@@ -344,6 +344,8 @@ export class SimpleAiService {
     - "set a reminder for milk at 5pm" → actionType=create_reminder, title="milk", localTime="5pm"
     - "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
     - "add eggs to groceries and remind me at 6pm and add milk to groceries and remind me at 7pm" → create TWO separate add_todo_item actions. For now, return only the FIRST item: actionType=add_todo_item, todoListTitle="groceries", todoItemContent="eggs", localTime="6pm"
+    - "done" or "completed" or "mark as done" → actionType=complete_reminder — only if user has pending reminders, match to the most recent one by title or context, set reminderId to its ID
+    - "stop reminding me about milk" or "cancel milk reminder" → actionType=complete_reminder, reminderId="the ID of the milk reminder" (only if found in pending reminders)
 - "edit my shopping list" → actionType=edit_todo_list, todoListTitle="shopping list"
 - "edit shopping list rename it to groceries" → actionType=edit_todo_list, todoListTitle="shopping list"
 - "delete my shopping list" → actionType=delete_list, todoListTitle="shopping list"
@@ -363,6 +365,7 @@ export class SimpleAiService {
     - "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total calories for the full meal (all items combined), set calories to your best estimate
     - "how many calories today" or "my calorie status" → actionType=calorie_status
     - "give me diet advice" or "diet tips" → actionType=diet_advice
+    - "make a payment" or "I want to subscribe" or "upgrade to premium" → actionType=make_payment
     `;
     const response = await provider.client.chat.completions.create({
       model: provider.models.parsing,
@@ -397,7 +400,7 @@ export class SimpleAiService {
     const model = provider.client.getGenerativeModel({ model: provider.models.parsing });
 
     const prompt = `Parse: "${userInput}"
-Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, unknown.
+Determine actionType: create_reminder, complete_reminder, save_note, get_note, save_password, get_password, create_todo, add_todo_item, get_todo, complete_todo_item, edit_todo_item, edit_todo_list, delete_list, system_query, update_settings, check_stock, check_cricket, check_ipo, stock_alert, match_alert, ipo_alert, connect_calendar, create_event, list_events, calorie_setup, log_food, calorie_status, diet_advice, make_payment, unknown.
     Return JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees
 
 RULES:
@@ -415,6 +418,8 @@ RULES:
 - "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"
 - "set a reminder for milk at 5pm" → actionType=create_reminder, title="milk", localTime="5pm"
 - "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
+- "done" or "completed" or "mark as done" → actionType=complete_reminder — only if user has pending reminders, match to the most recent one by title or context, set reminderId to its ID
+- "stop reminding me about milk" or "cancel milk reminder" → actionType=complete_reminder, reminderId="the ID of the milk reminder" (only if found in pending reminders)
 - "current IPOs" or "show me IPOs" → actionType=check_ipo
 - "upcoming IPOs" → actionType=check_ipo, matchQuery="upcoming"
 - "remind me about IPO deadlines" → actionType=ipo_alert, title="IPO Deadline Alerts", intervalMinutes=1440
@@ -427,7 +432,8 @@ RULES:
 - "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total calories for the full meal (all items combined), set calories to your best estimate
 - "how many calories today" → actionType=calorie_status
 - "give me diet advice" → actionType=diet_advice
-`;
+- "make a payment" or "I want to subscribe" → actionType=make_payment
+    `;
     const response = await model.generateContent(prompt);
     let content = response.response.text();
     
@@ -466,7 +472,7 @@ RULES:
   private async parseWithReplicate(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
     const prompt = `Parse this message and return ONLY valid JSON with no other text: "${userInput}"
 
-Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|calorie_setup|log_food|calorie_status|diet_advice|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoListTitles, deletePattern, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees, foodDescription, mealType, calories, weight, height, age, gender, activityLevel, goal, targetWeight
+Return JSON with actionType (create_reminder|complete_reminder|save_note|get_note|save_password|get_password|create_todo|add_todo_item|get_todo|complete_todo_item|edit_todo_item|edit_todo_list|delete_list|system_query|update_settings|check_stock|check_cricket|check_ipo|stock_alert|match_alert|ipo_alert|connect_calendar|create_event|list_events|calorie_setup|log_food|calorie_status|diet_advice|make_payment|unknown), title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoListTitles, deletePattern, todoItemContent, todoItemContents, dailyPromptTime, intervalMinutes, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees, foodDescription, mealType, calories, weight, height, age, gender, activityLevel, goal, targetWeight
 
 RULES:
 - Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Do NOT set reminderDate for time-only requests.
@@ -483,8 +489,7 @@ RULES:
 - "match updates every 15 min" → match_alert, matchQuery="india", intervalMinutes=15
 - "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"
 - "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"
-- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"
-- "current IPOs" → check_ipo
+- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "done" or "completed" or "mark as done" → actionType=complete_reminder — only if user has pending reminders, match to the most recent one by title or context, set reminderId to its ID\n- "stop reminding me about milk" or "cancel milk reminder" → actionType=complete_reminder, reminderId="the ID of the milk reminder" (only if found in pending reminders)\n- "current IPOs" → check_ipo
 - "upcoming IPOs" → check_ipo, matchQuery="upcoming"
 - "connect my Google Calendar" → connect_calendar
 - "create a meeting tomorrow at 3pm" → create_event, title="Meeting", localTime="3pm"
@@ -499,6 +504,7 @@ RULES:
 - "I had 150gm rice, 4 roti, rajma, sabzi" → log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total meal calories, set calories to your best estimate
 - "how many calories today" → calorie_status
 - "give me diet advice" → diet_advice
+- "make a payment" or "I want to subscribe" → make_payment
 `;
 
     const response = await provider.client.run(provider.models.parsing, {

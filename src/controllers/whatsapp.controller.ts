@@ -14,6 +14,7 @@ import { CricketService } from '../services/cricket.service';
 import { IpoService } from '../services/ipo.service';
 import { GoogleCalendarService } from '../services/google-calendar.service';
 import { CalorieHandlerService } from '../services/calorie-handler.service';
+import { RazorpayPaymentService } from '../services/razorpay-payment.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 import {
@@ -43,6 +44,7 @@ export class WhatsappController {
     private readonly ipoService: IpoService,
     private readonly googleCalendarService: GoogleCalendarService,
     private readonly calorieHandlerService: CalorieHandlerService,
+    private readonly razorpayPaymentService: RazorpayPaymentService,
   ) {}
 
   @Post('webhook')
@@ -549,6 +551,23 @@ export class WhatsappController {
         return;
       }
 
+      // Check if user is marking a reminder as done (before full AI parse)
+      if (pendingReminders.length > 0) {
+        const completionCheck = await this.aiService.detectTaskCompletion(message, pendingReminders);
+        if (completionCheck.completed && completionCheck.reminderId) {
+          this.logger.log(`Completion detected: reminderId=${completionCheck.reminderId}`);
+          const reminder = pendingReminders.find(r => r.id === completionCheck.reminderId);
+          await this.reminderService.markAsCompleted(completionCheck.reminderId);
+          await this.reminderService.deleteReminder(completionCheck.reminderId);
+          await this.reminderService.deleteAllSchedulesForReminder(completionCheck.reminderId);
+          const botMsg = reminder
+            ? `✅ Marked "${reminder.title}" as done!`
+            : completionCheck.response || '✅ Done!';
+          await this.sendAssistantReply(userPhone, user.id, botMsg);
+          return;
+        }
+      }
+
       // Parse message via AI with full context
       this.logger.log('Parsing message via AI...');
       const parsed = await this.aiService.parseReminderInput(
@@ -721,6 +740,9 @@ export class WhatsappController {
           break;
         case 'diet_advice':
           botResponse = await this.calorieHandlerService.handleDietAdvice(user);
+          break;
+        case 'make_payment':
+          botResponse = await this.handlePayment(user);
           break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
@@ -1469,6 +1491,22 @@ export class WhatsappController {
       SYSTEM_QUERY_PROMPT(message, WORKFLOWS),
       undefined,
     );
+  }
+
+  private async handlePayment(user: any): Promise<string> {
+    if (!this.razorpayPaymentService.isConfigured) {
+      return "Payments are not configured yet. Please set up Razorpay keys first.";
+    }
+    const amount = parseInt(process.env.RAZORPAY_AMOUNT || '499', 10);
+    const url = await this.razorpayPaymentService.createPaymentLink(
+      amount,
+      user.id,
+      'Premium Subscription',
+    );
+    if (!url) {
+      return "Sorry, I couldn't create a payment link right now. Please try again later.";
+    }
+    return `🔗 Click here to complete your payment:\n${url}\n\nOnce done, your premium features will be activated automatically.`;
   }
 
   private async handleCreateReminderOrFallback(

@@ -52,6 +52,9 @@ export class User {
   @Column({ name: 'last_ping_time', type: 'datetime', nullable: true })
   lastPingTime: Date;
 
+  @Column({ name: 'is_premium', default: false })
+  isPremium: boolean;
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

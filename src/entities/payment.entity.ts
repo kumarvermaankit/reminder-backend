@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
 
-export type PaymentStatus = 'created' | 'captured' | 'failed' | 'refunded';
+export type PaymentStatus = 'created' | 'captured' | 'failed' | 'refunded' | 'subscription_active' | 'subscription_cancelled' | 'subscription_expired';
 
 @Entity('payments')
 export class Payment {
@@ -14,6 +14,12 @@ export class Payment {
   @ManyToOne(() => User)
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @Column({ name: 'razorpay_subscription_id', nullable: true })
+  razorpaySubscriptionId: string;
+
+  @Column({ name: 'razorpay_plan_id', nullable: true })
+  razorpayPlanId: string;
 
   @Column({ name: 'razorpay_order_id' })
   razorpayOrderId: string;

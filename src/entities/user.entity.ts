@@ -63,6 +63,12 @@ export class User {
   @Column({ name: 'razorpay_subscription_id', nullable: true })
   razorpaySubscriptionId: string;
 
+  @Column({ name: 'razorpay_plan_id', nullable: true })
+  razorpayPlanId: string;
+
+  @Column({ name: 'subscription_interval', length: 10, nullable: true })
+  subscriptionInterval: 'monthly' | 'yearly' | null;
+
   @Column({ name: 'country', default: 'IN' })
   country: string;
 

@@ -179,4 +179,147 @@ export class RazorpayPaymentService {
   getDefaultPlanDuration(interval: 'monthly' | 'yearly'): number {
     return interval === 'yearly' ? 365 : 30;
   }
+
+  getRazorpayPlanId(planId: string, interval: 'monthly' | 'yearly'): string {
+    return `plan_${planId}_${interval}`;
+  }
+
+  async createOrGetRazorpayPlan(planId: string, interval: 'monthly' | 'yearly'): Promise<any> {
+    if (!this.razorpay) return null;
+    const plan = this.plans.find((p) => p.id === planId);
+    if (!plan) return null;
+
+    const razorpayPlanId = this.getRazorpayPlanId(planId, interval);
+    const currency = 'INR';
+    const amount = interval === 'yearly'
+      ? (plan.pricing_yearly[currency] || plan.pricing_yearly['USD'])
+      : (plan.pricing_monthly[currency] || plan.pricing_monthly['USD']);
+
+    const period = interval === 'yearly' ? 'yearly' : 'monthly';
+
+    try {
+      const existing = await this.razorpay.plans.fetch(razorpayPlanId);
+      this.logger.log(`Razorpay plan ${razorpayPlanId} already exists`);
+      return existing;
+    } catch {
+      try {
+        const newPlan = await this.razorpay.plans.create({
+          period,
+          interval: 1,
+          item: {
+            name: `${plan.name} (${interval})`,
+            amount: Math.round(amount),
+            currency,
+            description: plan.description,
+          },
+          id: razorpayPlanId,
+          notes: { planId, interval },
+        });
+        this.logger.log(`Created Razorpay plan ${razorpayPlanId}`);
+        return newPlan;
+      } catch (error) {
+        this.logger.error(`Failed to create Razorpay plan ${razorpayPlanId}:`, error);
+        return null;
+      }
+    }
+  }
+
+  async createSubscriptionLink(
+    planId: string,
+    interval: 'monthly' | 'yearly',
+    userId: string,
+    countryCode: string = 'IN',
+  ): Promise<any> {
+    if (!this.razorpay) return null;
+    const plan = this.plans.find((p) => p.id === planId);
+    if (!plan) return null;
+    const currency = this.getCurrencyForCountry(countryCode);
+
+    const razorpayPlan = await this.createOrGetRazorpayPlan(planId, interval);
+    if (!razorpayPlan) return null;
+
+    const totalCount = interval === 'yearly' ? 12 : 24;
+
+    try {
+      const subscription = await this.razorpay.subscriptions.create({
+        plan_id: razorpayPlan.id,
+        total_count: totalCount,
+        customer_notify: true,
+        notes: { userId, planId, interval },
+      });
+
+      const customer = await this.razorpay.customers.create({
+        name: '',
+        contact: '',
+        email: '',
+        notes: { userId, planId },
+      });
+
+      const link = await this.razorpay.subscriptions.createLink({
+        subscription_id: subscription.id,
+        customer_id: customer.id,
+        amount: 0,
+        currency,
+        description: `${plan.name} (${interval})`,
+      });
+
+      return {
+        subscriptionId: subscription.id,
+        shortUrl: link.short_url,
+        planId,
+        interval,
+        amount: interval === 'yearly'
+          ? (plan.pricing_yearly[currency] || plan.pricing_yearly['USD'])
+          : (plan.pricing_monthly[currency] || plan.pricing_monthly['USD']),
+        currency,
+        razorpayPlanId: razorpayPlan.id,
+      };
+    } catch (error) {
+      this.logger.error('Failed to create subscription link:', error);
+      return null;
+    }
+  }
+
+  async cancelSubscription(subscriptionId: string): Promise<boolean> {
+    if (!this.razorpay) return false;
+    try {
+      await this.razorpay.subscriptions.cancel(subscriptionId);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to cancel subscription ${subscriptionId}:`, error);
+      return false;
+    }
+  }
+
+  async getSubscription(subscriptionId: string): Promise<any> {
+    if (!this.razorpay) return null;
+    try {
+      return await this.razorpay.subscriptions.fetch(subscriptionId);
+    } catch (error) {
+      this.logger.error(`Failed to fetch subscription ${subscriptionId}:`, error);
+      return null;
+    }
+  }
+
+  async pauseSubscription(subscriptionId: string): Promise<boolean> {
+    if (!this.razorpay) return false;
+    try {
+      await this.razorpay.subscriptions.pause(subscriptionId, { pause_at: 'now' });
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to pause subscription ${subscriptionId}:`, error);
+      return false;
+    }
+  }
+
+  async resumeSubscription(subscriptionId: string): Promise<boolean> {
+    if (!this.razorpay) return false;
+    try {
+      await this.razorpay.subscriptions.resume(subscriptionId, { resume_at: 'immediately' });
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to resume subscription ${subscriptionId}:`, error);
+      return false;
+    }
+  }
 }

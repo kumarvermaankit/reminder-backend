@@ -159,6 +159,28 @@ export class RazorpayController {
 
   // ── Subscription (autopay) endpoints ──
 
+  @Post('find-or-create-user')
+  async findOrCreateUser(@Body() body: { phone?: string; email?: string }) {
+    if (!body.phone && !body.email) {
+      return { success: false, error: 'Phone or email required' };
+    }
+    let user: User;
+    if (body.phone) {
+      user = await this.userService.getUserByPhone(body.phone);
+    } else {
+      user = await this.userService.getUserByEmail(body.email);
+    }
+    if (!user) {
+      user = await this.userService.createUser({
+        phone: body.phone || '',
+        email: body.email || '',
+        isPremium: false,
+        plan: 'free',
+      });
+    }
+    return { success: true, userId: user.id };
+  }
+
   @Post('create-subscription-link')
   async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string }) {
     if (!body.planId || !body.userId) {

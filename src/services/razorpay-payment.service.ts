@@ -166,6 +166,40 @@ export class RazorpayPaymentService {
     }
   }
 
+  async verifySubscriptionSignature(subscriptionId: string, paymentId: string, signature: string): Promise<boolean> {
+    try {
+      const crypto = require('crypto');
+      const expected = crypto.createHmac('sha256', this.razorpayKeySecret).update(`${subscriptionId}|${paymentId}`).digest('hex');
+      return expected === signature;
+    } catch {
+      return false;
+    }
+  }
+
+  async createSubscription(planId: string, interval: 'monthly' | 'yearly', userId: string): Promise<any> {
+    if (!this.razorpay) return null;
+    const plan = this.plans.find((p) => p.id === planId);
+    if (!plan) return null;
+
+    const razorpayPlan = await this.createOrGetRazorpayPlan(planId, interval);
+    if (!razorpayPlan) return null;
+
+    const totalCount = interval === 'yearly' ? 12 : 24;
+
+    try {
+      const subscription = await this.razorpay.subscriptions.create({
+        plan_id: razorpayPlan.id,
+        total_count: totalCount,
+        customer_notify: true,
+        notes: { userId, planId, interval },
+      });
+      return subscription;
+    } catch (error) {
+      this.logger.error('Failed to create Razorpay subscription:', error);
+      return null;
+    }
+  }
+
   async verifyWebhookSignature(body: string, signature: string, secret: string): Promise<boolean> {
     try {
       const crypto = require('crypto');

@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RazorpayPaymentService } from '../services/razorpay-payment.service';
 import { PlanGuardService } from '../services/plan-guard.service';
+import { CouponService } from '../services/coupon.service';
 import { UserService } from '../services/user.service';
 import { User } from '../entities/user.entity';
 import { Payment } from '../entities/payment.entity';
@@ -16,6 +17,7 @@ export class RazorpayController {
   constructor(
     private readonly razorpayPaymentService: RazorpayPaymentService,
     private readonly planGuardService: PlanGuardService,
+    private readonly couponService: CouponService,
     private readonly userService: UserService,
     private readonly configService: ConfigService,
     @InjectRepository(Payment)
@@ -234,7 +236,7 @@ export class RazorpayController {
   }
 
   @Post('create-subscription-link')
-  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string }) {
+  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string; trialDays?: number }) {
     if (!body.planId || !body.userId) {
       return { success: false, error: 'planId and userId are required' };
     }
@@ -245,6 +247,7 @@ export class RazorpayController {
       body.userId,
       body.country || 'IN',
       body.customerId,
+      body.trialDays,
     );
 
     if (!result) {
@@ -355,6 +358,215 @@ export class RazorpayController {
     }
 
     return { success: true, subscription: status };
+  }
+
+  // ── Trial endpoints ──
+
+  @Post('start-trial')
+  async startTrial(@Body() body: { userId: string; planId?: string; trialDays?: number }) {
+    if (!body.userId) {
+      return { success: false, error: 'userId is required' };
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const planId = (body.planId || 'helper') as any;
+    const trialDays = body.trialDays || 7;
+    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+
+    await this.userRepository.update(body.userId, {
+      plan: planId,
+      isPremium: true,
+      trialEndsAt,
+      planExpiresAt: trialEndsAt,
+    });
+
+    this.logger.log(`Trial started: user=${body.userId} plan=${planId} days=${trialDays} until=${trialEndsAt.toISOString()}`);
+
+    return {
+      success: true,
+      planId,
+      trialDays,
+      trialEndsAt: trialEndsAt.toISOString(),
+    };
+  }
+
+  @Post('extend-trial')
+  async extendTrial(@Body() body: { userId: string; additionalDays: number }) {
+    if (!body.userId || !body.additionalDays) {
+      return { success: false, error: 'userId and additionalDays are required' };
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const now = new Date();
+    const currentEnd = user.trialEndsAt && user.trialEndsAt > now ? user.trialEndsAt : now;
+    const newEnd = new Date(currentEnd.getTime() + body.additionalDays * 24 * 60 * 60 * 1000);
+
+    const updates: any = {
+      trialEndsAt: newEnd,
+      planExpiresAt: newEnd,
+    };
+    if (!user.isPremium) {
+      updates.isPremium = true;
+      updates.plan = user.plan === 'free' ? 'helper' : user.plan;
+    }
+
+    await this.userRepository.update(body.userId, updates);
+
+    this.logger.log(`Trial extended: user=${body.userId} +${body.additionalDays}d newEnd=${newEnd.toISOString()}`);
+
+    return {
+      success: true,
+      trialEndsAt: newEnd.toISOString(),
+      additionalDays: body.additionalDays,
+    };
+  }
+
+  // ── Coupon endpoints ──
+
+  @Post('create-coupon')
+  async createCoupon(@Body() body: { code: string; planId: string; durationDays: number; maxUses?: number; expiresAt?: string; description?: string }) {
+    if (!body.code || !body.planId || !body.durationDays) {
+      return { success: false, error: 'code, planId, and durationDays are required' };
+    }
+
+    try {
+      const coupon = await this.couponService.createCoupon({
+        code: body.code,
+        planId: body.planId as any,
+        durationDays: body.durationDays,
+        maxUses: body.maxUses,
+        expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
+        description: body.description,
+      });
+
+      return {
+        success: true,
+        coupon: {
+          id: coupon.id,
+          code: coupon.code,
+          planId: coupon.planId,
+          durationDays: coupon.durationDays,
+          maxUses: coupon.maxUses,
+          expiresAt: coupon.expiresAt?.toISOString() || null,
+          active: coupon.active,
+          usedCount: coupon.usedCount,
+          description: coupon.description,
+        },
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to create coupon' };
+    }
+  }
+
+  @Post('validate-coupon')
+  async validateCoupon(@Body() body: { code: string }) {
+    if (!body.code) {
+      return { success: false, error: 'code is required' };
+    }
+
+    const result = await this.couponService.validateCoupon(body.code);
+    if (!result.valid) {
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: true,
+      coupon: {
+        code: result.coupon.code,
+        planId: result.coupon.planId,
+        durationDays: result.coupon.durationDays,
+        description: result.coupon.description,
+        expiresAt: result.coupon.expiresAt?.toISOString() || null,
+      },
+    };
+  }
+
+  @Post('apply-coupon')
+  async applyCoupon(@Body() body: { code: string; userId: string }) {
+    if (!body.code || !body.userId) {
+      return { success: false, error: 'code and userId are required' };
+    }
+
+    const result = await this.couponService.applyCoupon(body.code, body.userId);
+    return result;
+  }
+
+  @Get('coupons')
+  async listCoupons() {
+    const coupons = await this.couponService.listCoupons();
+    return {
+      success: true,
+      coupons: coupons.map((c) => ({
+        id: c.id,
+        code: c.code,
+        planId: c.planId,
+        durationDays: c.durationDays,
+        maxUses: c.maxUses,
+        usedCount: c.usedCount,
+        expiresAt: c.expiresAt?.toISOString() || null,
+        active: c.active,
+        description: c.description,
+      })),
+    };
+  }
+
+  @Post('deactivate-coupon')
+  async deactivateCoupon(@Body() body: { id: string }) {
+    if (!body.id) {
+      return { success: false, error: 'id is required' };
+    }
+
+    try {
+      await this.couponService.deactivateCoupon(body.id);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to deactivate coupon' };
+    }
+  }
+
+  // ── Plan status / authorization endpoint ──
+
+  @Get('plan-status')
+  async getPlanStatus(@Query('userId') userId: string) {
+    if (!userId) {
+      return { success: false, error: 'userId is required' };
+    }
+
+    const user = await this.planGuardService.getUserWithPlan(userId);
+    const daysRemaining = this.planGuardService.getDaysRemaining(user);
+
+    return {
+      success: true,
+      plan: user.plan,
+      isPremium: user.isPremium,
+      isOnTrial: this.planGuardService.isOnTrial(user),
+      isCouponActive: this.planGuardService.isCouponActive(user),
+      hasActiveAccess: this.planGuardService.hasActiveAccess(user),
+      daysRemaining,
+      trialEndsAt: user.trialEndsAt?.toISOString() || null,
+      planExpiresAt: user.planExpiresAt?.toISOString() || null,
+      couponExpiresAt: user.couponExpiresAt?.toISOString() || null,
+      features: {
+        reminders: this.planGuardService.hasFeature(user, 'reminders'),
+        passwords: this.planGuardService.hasFeature(user, 'passwords'),
+        todoLists: this.planGuardService.hasFeature(user, 'todo_lists'),
+        calorieTracker: this.planGuardService.hasFeature(user, 'calorie_tracker'),
+        googleCalendar: this.planGuardService.hasFeature(user, 'google_calendar'),
+        googleDocs: this.planGuardService.hasFeature(user, 'google_docs'),
+        googleSheets: this.planGuardService.hasFeature(user, 'google_sheets'),
+        stockQueries: this.planGuardService.hasFeature(user, 'stock_queries'),
+        cricketQueries: this.planGuardService.hasFeature(user, 'cricket_queries'),
+        prioritySupport: this.planGuardService.hasFeature(user, 'priority_support'),
+      },
+    };
   }
 
   // ── Webhook ──

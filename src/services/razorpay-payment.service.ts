@@ -232,6 +232,7 @@ export class RazorpayPaymentService {
     userId: string,
     countryCode: string = 'IN',
     customerId?: string,
+    trialDays?: number,
   ): Promise<any> {
     if (!this.razorpay) return null;
     const plan = this.plans.find((p) => p.id === planId);
@@ -244,12 +245,22 @@ export class RazorpayPaymentService {
     const totalCount = interval === 'yearly' ? 12 : 24;
 
     try {
-      const subscription = await this.razorpay.subscriptions.create({
+      const subscriptionOptions: any = {
         plan_id: razorpayPlan.id,
         total_count: totalCount,
         customer_notify: true,
         notes: { userId, planId, interval },
-      });
+      };
+
+      if (trialDays && trialDays > 0) {
+        subscriptionOptions.start_at = Math.floor(Date.now() / 1000);
+        subscriptionOptions.addons = [];
+        subscriptionOptions.quantity = 1;
+        subscriptionOptions.expire_by = Math.floor(Date.now() / 1000) + trialDays * 86400;
+        subscriptionOptions.trial_period_days = trialDays;
+      }
+
+      const subscription = await this.razorpay.subscriptions.create(subscriptionOptions);
 
       if (!customerId) {
         const customer = await this.razorpay.customers.create({
@@ -269,6 +280,8 @@ export class RazorpayPaymentService {
         description: `${plan.name} (${interval})`,
       });
 
+      const planTrialEnd = trialDays ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000) : undefined;
+
       return {
         subscriptionId: subscription.id,
         shortUrl: link.short_url,
@@ -280,6 +293,8 @@ export class RazorpayPaymentService {
         currency,
         razorpayPlanId: razorpayPlan.id,
         customerId,
+        trialDays: trialDays || 0,
+        trialEndsAt: planTrialEnd ? planTrialEnd.toISOString() : undefined,
       };
     } catch (error) {
       this.logger.error('Failed to create subscription link:', error);

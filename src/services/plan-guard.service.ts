@@ -89,11 +89,52 @@ export class PlanGuardService {
     if (!user) {
       throw new ForbiddenException('User not found');
     }
-    if (user.planExpiresAt && user.planExpiresAt < new Date()) {
+
+    const now = new Date();
+
+    const trialActive = user.trialEndsAt && user.trialEndsAt > now;
+    const couponActive = user.couponExpiresAt && user.couponExpiresAt > now;
+    const planActive = user.planExpiresAt && user.planExpiresAt > now;
+
+    if (!trialActive && !couponActive && !planActive && user.plan !== 'free') {
+      this.logger.log(`Plan expired for user ${userId}: resetting to free`);
       user.plan = 'free';
       user.isPremium = false;
       await this.userRepository.update(userId, { plan: 'free', isPremium: false });
     }
+
     return user;
+  }
+
+  isOnTrial(user: User): boolean {
+    return !!(user.trialEndsAt && user.trialEndsAt > new Date());
+  }
+
+  isCouponActive(user: User): boolean {
+    return !!(user.couponExpiresAt && user.couponExpiresAt > new Date());
+  }
+
+  hasActiveAccess(user: User): boolean {
+    const now = new Date();
+    return !!(
+      (user.planExpiresAt && user.planExpiresAt > now) ||
+      (user.trialEndsAt && user.trialEndsAt > now) ||
+      (user.couponExpiresAt && user.couponExpiresAt > now)
+    );
+  }
+
+  getDaysRemaining(user: User): { trial?: number; plan?: number; coupon?: number; total?: number } {
+    const now = new Date();
+    const result: any = {};
+    if (user.trialEndsAt && user.trialEndsAt > now) {
+      result.trial = Math.ceil((user.trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+    if (user.planExpiresAt && user.planExpiresAt > now) {
+      result.plan = Math.ceil((user.planExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+    if (user.couponExpiresAt && user.couponExpiresAt > now) {
+      result.coupon = Math.ceil((user.couponExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+    return result;
   }
 }

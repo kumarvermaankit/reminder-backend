@@ -157,6 +157,58 @@ export class RazorpayController {
     return { success: true };
   }
 
+  // ── Customer endpoint ──
+
+  @Post('create-customer')
+  async createCustomer(@Body() body: { userId: string; name?: string; email?: string; contact?: string }) {
+    if (!body.userId) {
+      return { success: false, error: 'userId is required' };
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    try {
+      const Razorpay = require('razorpay');
+      const razorpay = new Razorpay({
+        key_id: this.configService.get<string>('RAZORPAY_KEY_ID'),
+        key_secret: this.configService.get<string>('RAZORPAY_KEY_SECRET'),
+      });
+
+      const name = body.name || user.name || 'User';
+      const email = body.email || user.email || '';
+      const contact = body.contact || user.phone || '';
+
+      const customer = await razorpay.customers.create({
+        name,
+        email,
+        contact,
+        notes: { userId: user.id },
+      });
+
+      await this.userRepository.update(user.id, {
+        name,
+        ...(body.email && { email: body.email }),
+        ...(body.contact && { phone: body.contact }),
+      } as any);
+
+      this.logger.log(`Razorpay customer created: user=${user.id} customer=${customer.id}`);
+
+      return {
+        success: true,
+        customerId: customer.id,
+        name: customer.name,
+        email: customer.email,
+        contact: customer.contact,
+      };
+    } catch (error) {
+      this.logger.error('Failed to create Razorpay customer:', error);
+      return { success: false, error: 'Failed to create customer' };
+    }
+  }
+
   // ── Subscription (autopay) endpoints ──
 
   @Post('find-or-create-user')
@@ -182,7 +234,7 @@ export class RazorpayController {
   }
 
   @Post('create-subscription-link')
-  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string }) {
+  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string }) {
     if (!body.planId || !body.userId) {
       return { success: false, error: 'planId and userId are required' };
     }
@@ -192,6 +244,7 @@ export class RazorpayController {
       body.interval || 'monthly',
       body.userId,
       body.country || 'IN',
+      body.customerId,
     );
 
     if (!result) {

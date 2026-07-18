@@ -231,6 +231,7 @@ export class RazorpayPaymentService {
     interval: 'monthly' | 'yearly',
     userId: string,
     countryCode: string = 'IN',
+    customerId?: string,
   ): Promise<any> {
     if (!this.razorpay) return null;
     const plan = this.plans.find((p) => p.id === planId);
@@ -250,16 +251,19 @@ export class RazorpayPaymentService {
         notes: { userId, planId, interval },
       });
 
-      const customer = await this.razorpay.customers.create({
-        name: '',
-        contact: '',
-        email: '',
-        notes: { userId, planId },
-      });
+      if (!customerId) {
+        const customer = await this.razorpay.customers.create({
+          name: '',
+          contact: '',
+          email: '',
+          notes: { userId, planId },
+        });
+        customerId = customer.id;
+      }
 
       const link = await this.razorpay.subscriptions.createLink({
         subscription_id: subscription.id,
-        customer_id: customer.id,
+        customer_id: customerId,
         amount: 0,
         currency,
         description: `${plan.name} (${interval})`,
@@ -275,6 +279,7 @@ export class RazorpayPaymentService {
           : (plan.pricing_monthly[currency] || plan.pricing_monthly['USD']),
         currency,
         razorpayPlanId: razorpayPlan.id,
+        customerId,
       };
     } catch (error) {
       this.logger.error('Failed to create subscription link:', error);

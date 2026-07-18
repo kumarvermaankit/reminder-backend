@@ -22,6 +22,7 @@ import {
   resolveDisplayTimezone, formatRelativeTime,
 } from '../utils/timezone';
 import { SYSTEM_QUERY_PROMPT } from '../constants/ai-prompts';
+import { PlanGuardService, Feature } from '../services/plan-guard.service';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -43,6 +44,7 @@ export class WhatsappController {
     private readonly ipoService: IpoService,
     private readonly googleCalendarService: GoogleCalendarService,
     private readonly calorieHandlerService: CalorieHandlerService,
+    private readonly planGuardService: PlanGuardService,
   ) {}
 
   @Post('webhook')
@@ -662,6 +664,47 @@ export class WhatsappController {
         }
       }
 
+      // ── Authorization check ──
+      const ACTION_FEATURE: Record<string, Feature> = {
+        save_password: 'passwords',
+        get_password: 'passwords',
+        create_todo: 'todo_lists',
+        add_todo_item: 'todo_lists',
+        get_todo: 'todo_lists',
+        complete_todo_item: 'todo_lists',
+        edit_todo_item: 'todo_lists',
+        edit_todo_list: 'todo_lists',
+        delete_list: 'todo_lists',
+        calorie_setup: 'calorie_tracker',
+        log_food: 'calorie_tracker',
+        calorie_status: 'calorie_tracker',
+        diet_advice: 'calorie_tracker',
+        check_stock: 'stock_queries',
+        stock_alert: 'stock_queries',
+        check_cricket: 'cricket_queries',
+        match_alert: 'cricket_queries',
+        connect_calendar: 'google_calendar',
+        create_event: 'google_calendar',
+        list_events: 'google_calendar',
+      };
+
+      const requiredFeature = ACTION_FEATURE[parsed.actionType];
+      if (requiredFeature) {
+        user = await this.planGuardService.getUserWithPlan(user.id);
+        if (!this.planGuardService.hasFeature(user, requiredFeature)) {
+          const minPlan = this.planGuardService.minPlanForFeature(requiredFeature);
+          const planNames = { helper: 'Helper', assistant: 'Assistant', manager: 'Manager' };
+          const planName = planNames[minPlan] || minPlan;
+          const blockedMsg =
+            `⚠️ *Upgrade Required*\n\n` +
+            `This feature requires the *${planName}* plan or higher. ` +
+            `Your current plan is *${user.plan === 'free' ? 'Free' : user.plan}*.\n\n` +
+            `👉 Subscribe at https://heyping.in/subscribe to unlock it.`;
+          await this.sendAssistantReply(userPhone, user.id, blockedMsg, false);
+          return;
+        }
+      }
+
       // Dispatch based on action type
       let botResponse: string;
 
@@ -748,7 +791,22 @@ export class WhatsappController {
           botResponse = await this.calorieHandlerService.handleDietAdvice(user);
           break;
         case 'make_payment':
-          botResponse = `🌐 *Subscribe on our website*\n\nChoose a plan and pay securely:\n\n👉 https://heyping.in/subscribe\n\nPlans:\n• *Helper* — Reminders + Passwords\n• *Assistant* — + Todos + Calorie tracker\n• *Manager* — + Google Calendar, Docs, Sheets`;
+          {
+            user = await this.planGuardService.getUserWithPlan(user.id);
+            const days = this.planGuardService.getDaysRemaining(user);
+            const daysLeft = days.plan || days.trial || days.coupon || 0;
+            const hasAccess = this.planGuardService.hasActiveAccess(user);
+            let statusLine = '';
+            if (hasAccess && daysLeft > 0) {
+              statusLine = `\n\n✅ Your *${user.plan}* plan is active (${daysLeft} day${daysLeft > 1 ? 's' : ''} remaining).`;
+            }
+            botResponse =
+              `🌐 *Plans & Subscription*\n\n` +
+              `👉 https://heyping.in/subscribe${statusLine}\n\n` +
+              `*Helper* — Reminders + Passwords\n` +
+              `*Assistant* — + Todos, Calorie tracker, Stocks & Cricket\n` +
+              `*Manager* — + Google Calendar, Docs, Sheets, Priority support`;
+          }
           break;
         default:
           botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);

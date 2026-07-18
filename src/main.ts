@@ -14,7 +14,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   console.log('GEMINI_API_KEY loaded:', configService.get('GEMINI_API_KEY') ? 'YES' : 'NO');
 
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = parseInt(process.env.PORT || '5000', 10);
   await app.listen(port);
   console.log(`Listening on port ${port}`);
 }

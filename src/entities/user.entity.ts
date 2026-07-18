@@ -1,6 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { Reminder } from './reminder.entity';
 
+export type PlanType = 'free' | 'helper' | 'assistant' | 'manager';
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -54,6 +56,18 @@ export class User {
 
   @Column({ name: 'is_premium', default: false })
   isPremium: boolean;
+
+  @Column({ name: 'plan', type: 'varchar', length: 20, default: 'free' })
+  plan: PlanType;
+
+  @Column({ name: 'razorpay_subscription_id', nullable: true })
+  razorpaySubscriptionId: string;
+
+  @Column({ name: 'country', default: 'IN' })
+  country: string;
+
+  @Column({ name: 'plan_expires_at', type: 'datetime', nullable: true })
+  planExpiresAt: Date;
 
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];

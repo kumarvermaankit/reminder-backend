@@ -116,6 +116,28 @@ export class UserContextService {
     await this.setListWorkflow(userId, null);
   }
 
+  async setPendingPaymentPlan(userId: string, planId: string): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (!ctx) {
+      ctx = this.repo.create({ userId, conversation: [] });
+    }
+    ctx.pendingPaymentPlan = planId;
+    await this.repo.save(ctx);
+  }
+
+  async getPendingPaymentPlan(userId: string): Promise<string | null> {
+    const ctx = await this.repo.findOne({ where: { userId } });
+    return ctx?.pendingPaymentPlan || null;
+  }
+
+  async clearPendingPaymentPlan(userId: string): Promise<void> {
+    let ctx = await this.repo.findOne({ where: { userId } });
+    if (ctx) {
+      ctx.pendingPaymentPlan = null;
+      await this.repo.save(ctx);
+    }
+  }
+
   async setPendingTimezoneMessage(userId: string, message: string): Promise<void> {
     let ctx = await this.repo.findOne({ where: { userId } });
     if (!ctx) {

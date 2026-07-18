@@ -28,6 +28,7 @@ import { GoogleCalendarService } from './services/google-calendar.service';
 import { CalorieService } from './services/calorie.service';
 import { CalorieHandlerService } from './services/calorie-handler.service';
 import { RazorpayPaymentService } from './services/razorpay-payment.service';
+import { PlanGuardService } from './services/plan-guard.service';
 import { GoogleCalendarController } from './controllers/google-calendar.controller';
 import { RazorpayController } from './controllers/razorpay.controller';
 import { GoogleToken } from './entities/google-token.entity';
@@ -41,6 +42,7 @@ import { TodoList } from './entities/todo-list.entity';
 import { TodoItem } from './entities/todo-item.entity';
 import { CalorieProfile } from './entities/calorie-profile.entity';
 import { FoodLog } from './entities/food-log.entity';
+import { Payment } from './entities/payment.entity';
 
 @Module({
   imports: [
@@ -56,11 +58,11 @@ import { FoodLog } from './entities/food-log.entity';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog],
+      entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog, Payment],
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog])  ],
+    TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog, Payment])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController, RazorpayController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService, PlanGuardService],
 })
 export class AppModule {}

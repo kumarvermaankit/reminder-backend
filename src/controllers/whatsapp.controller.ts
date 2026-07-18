@@ -549,6 +549,77 @@ export class WhatsappController {
       }
       } // closes outer if (pendingSelection)
 
+      // ── Pending payment plan selection ──
+      const pendingPlan = await this.userContextService.getPendingPaymentPlan(user.id);
+      if (pendingPlan) {
+        const trimmed = message.trim();
+        if (trimmed.toLowerCase() === 'cancel') {
+          await this.userContextService.clearPendingPaymentPlan(user.id);
+          await this.sendAssistantReply(userPhone, user.id, '👍 Payment cancelled.');
+          return;
+        }
+        if (trimmed === '1' || trimmed === '2' || trimmed === '3') {
+          const plans = ['helper', 'assistant', 'manager'];
+          const planId = plans[parseInt(trimmed, 10) - 1];
+          await this.userContextService.clearPendingPaymentPlan(user.id);
+          const planConfig = this.razorpayPaymentService.getPlanConfig(planId);
+          if (!planConfig) {
+            await this.sendAssistantReply(userPhone, user.id, 'Invalid plan. Please try again.');
+            return;
+          }
+          const currency = this.razorpayPaymentService.getCurrencyForCountry(user.country || 'IN');
+          const monthlyPricing = planConfig.pricing_monthly[currency] || planConfig.pricing_monthly['USD'];
+          const yearlyPricing = planConfig.pricing_yearly[currency] || planConfig.pricing_yearly['USD'];
+          const monthlyDisplay = (monthlyPricing / 100).toLocaleString('en-IN');
+          const yearlyDisplay = (yearlyPricing / 100).toLocaleString('en-IN');
+          const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency;
+
+          const msg =
+            `🛒 *${planConfig.name}* plan selected\n\n` +
+            `💰 *Monthly:* ${currencySymbol}${monthlyDisplay}/mo\n` +
+            `💎 *Yearly:* ${currencySymbol}${yearlyDisplay}/yr (save ~${Math.round((1 - yearlyPricing / (monthlyPricing * 12)) * 100)}%)\n\n` +
+            `Reply with *M* for monthly or *Y* for yearly, or *cancel* to abort.`;
+
+          await this.userContextService.setPendingPaymentPlan(user.id, `confirm_${planId}`);
+          await this.sendAssistantReply(userPhone, user.id, msg);
+          return;
+        }
+        if (pendingPlan.startsWith('confirm_')) {
+          const planId = pendingPlan.replace('confirm_', '');
+          if (trimmed.toUpperCase() === 'M' || trimmed.toUpperCase() === 'Y') {
+            const interval = trimmed.toUpperCase() === 'M' ? 'monthly' : 'yearly';
+            await this.userContextService.clearPendingPaymentPlan(user.id);
+            const planConfig = this.razorpayPaymentService.getPlanConfig(planId);
+            if (!planConfig) {
+              await this.sendAssistantReply(userPhone, user.id, 'Invalid plan. Please try again.');
+              return;
+            }
+            const currency = this.razorpayPaymentService.getCurrencyForCountry(user.country || 'IN');
+            const amount = interval === 'yearly'
+              ? (planConfig.pricing_yearly[currency] || planConfig.pricing_yearly['USD'])
+              : (planConfig.pricing_monthly[currency] || planConfig.pricing_monthly['USD']);
+            const displayAmount = (amount / 100).toLocaleString('en-IN');
+            const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency;
+
+            const url = await this.razorpayPaymentService.createPaymentLink(
+              amount, user.id, `${planConfig.name} (${interval})`, planId as any, interval,
+            );
+            if (!url) {
+              await this.sendAssistantReply(userPhone, user.id, "Sorry, I couldn't create a payment link. Please try again later.");
+              return;
+            }
+            await this.sendAssistantReply(
+              userPhone, user.id,
+              `🔗 Click here to complete your *${planConfig.name}* (${interval}) payment of ${currencySymbol}${displayAmount}:\n\n${url}\n\nOnce done, your plan will be activated automatically.`,
+            );
+            return;
+          }
+          await this.sendAssistantReply(userPhone, user.id, 'Reply with *M* for monthly or *Y* for yearly, or *cancel* to abort.');
+          return;
+        }
+        await this.userContextService.clearPendingPaymentPlan(user.id);
+      }
+
       // Handle simple greetings without AI call
       const greetingMatch = message.trim().match(/^(hi|hello|hey|yo|sup|good\s*(morning|afternoon|evening))[.!]*$/i);
       if (greetingMatch && user.name !== 'there') {
@@ -1505,16 +1576,17 @@ export class WhatsappController {
     if (!this.razorpayPaymentService.isConfigured) {
       return "Payments are not configured yet. Please set up Razorpay keys first.";
     }
-    const amount = parseInt(process.env.RAZORPAY_AMOUNT || '499', 10);
-    const url = await this.razorpayPaymentService.createPaymentLink(
-      amount,
-      user.id,
-      'Premium Subscription',
+
+    const plans = this.razorpayPaymentService.getPlans(user.country || 'IN');
+
+    const lines = plans.map((p, i) =>
+      `${i + 1}. *${p.name}* — ₹${(p.price_monthly / 100).toLocaleString()}/mo\n` +
+      `   ${p.features.slice(0, 3).join(' · ')}`
     );
-    if (!url) {
-      return "Sorry, I couldn't create a payment link right now. Please try again later.";
-    }
-    return `🔗 Click here to complete your payment:\n${url}\n\nOnce done, your premium features will be activated automatically.`;
+
+    return `📋 *Choose a plan:*\n\n${lines.join('\n\n')}\n\n` +
+      `Reply with the plan number (1 for *Helper*, 2 for *Assistant*, 3 for *Manager*) ` +
+      `and I'll send you the payment link.`;
   }
 
   private async handleCreateReminderOrFallback(

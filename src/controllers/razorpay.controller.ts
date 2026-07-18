@@ -173,22 +173,11 @@ export class RazorpayController {
     }
 
     try {
-      const Razorpay = require('razorpay');
-      const razorpay = new Razorpay({
-        key_id: this.configService.get<string>('RAZORPAY_KEY_ID'),
-        key_secret: this.configService.get<string>('RAZORPAY_KEY_SECRET'),
-      });
-
       const name = body.name || user.name || 'User';
       const email = body.email || user.email || '';
       const contact = body.contact || user.phone || '';
 
-      const customer = await razorpay.customers.create({
-        name,
-        email,
-        contact,
-        notes: { userId: user.id },
-      });
+      const customer = await this.razorpayPaymentService.createCustomer(name, contact, email, user.id);
 
       await this.userRepository.update(user.id, {
         name,
@@ -206,8 +195,9 @@ export class RazorpayController {
         contact: customer.contact,
       };
     } catch (error) {
-      this.logger.error('Failed to create Razorpay customer:', error);
-      return { success: false, error: 'Failed to create customer' };
+      const detail = error?.error?.description || error?.message || error;
+      this.logger.error(`Failed to create Razorpay customer: ${detail}`);
+      return { success: false, error: `Failed to create customer: ${detail}` };
     }
   }
 

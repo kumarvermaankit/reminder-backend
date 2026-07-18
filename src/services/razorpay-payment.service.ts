@@ -313,6 +313,24 @@ export class RazorpayPaymentService {
     }
   }
 
+  async createCustomer(name: string, contact: string, email: string, userId: string): Promise<any> {
+    if (!this.razorpay) {
+      throw new Error('Razorpay not configured — check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET');
+    }
+    try {
+      const customer = await this.razorpay.customers.create({
+        name,
+        contact,
+        email,
+        notes: { userId },
+      });
+      return customer;
+    } catch (error) {
+      this.logger.error(`Razorpay createCustomer failed: ${error?.error?.description || error.message || error}`);
+      throw error;
+    }
+  }
+
   async getSubscription(subscriptionId: string): Promise<any> {
     if (!this.razorpay) return null;
     try {

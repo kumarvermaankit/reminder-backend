@@ -1,11 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import cors from 'cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({ origin: true, credentials: true });
+  app.use(cors({
+    origin: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With,x-razorpay-signature',
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  }));
 
   app.getHttpAdapter().get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });

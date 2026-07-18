@@ -128,7 +128,7 @@ export class RazorpayController {
     razorpayOrderId: string;
     razorpaySignature: string;
     planId: string;
-    userId: string;
+    userId?: string;
     interval?: 'monthly' | 'yearly';
     amount?: number;
     currency?: string;
@@ -147,45 +147,36 @@ export class RazorpayController {
       return { success: false, error: 'Invalid plan' };
     }
 
-    const user = await this.userRepository.findOne({ where: { id: body.userId } });
-    if (!user) {
-      return { success: false, error: 'User not found' };
+    if (body.userId) {
+      const user = await this.userRepository.findOne({ where: { id: body.userId } });
+      if (user) {
+        const interval = body.interval || 'monthly';
+        const days = this.razorpayPaymentService.getDefaultPlanDuration(interval);
+        const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+        await this.userRepository.update(body.userId, {
+          isPremium: true,
+          plan: body.planId as any,
+          planExpiresAt: expiresAt,
+        });
+
+        await this.paymentRepository.save({
+          userId: body.userId,
+          razorpayOrderId: body.razorpayOrderId,
+          razorpayPaymentId: body.razorpayPaymentId,
+          razorpaySignature: body.razorpaySignature,
+          planId: body.planId,
+          amount: body.amount || 0,
+          currency: body.currency || 'INR',
+          interval,
+          status: 'captured',
+        });
+
+        this.logger.log(`Payment callback: user=${body.userId} plan=${body.planId} payment=${body.razorpayPaymentId}`);
+      }
     }
 
-    const interval = body.interval || 'monthly';
-    const days = this.razorpayPaymentService.getDefaultPlanDuration(interval);
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-
-    await this.userRepository.update(body.userId, {
-      isPremium: true,
-      plan: body.planId as any,
-      planExpiresAt: expiresAt,
-    });
-
-    const payment = this.paymentRepository.create({
-      userId: body.userId,
-      razorpayOrderId: body.razorpayOrderId,
-      razorpayPaymentId: body.razorpayPaymentId,
-      razorpaySignature: body.razorpaySignature,
-      planId: body.planId,
-      amount: body.amount || 0,
-      currency: body.currency || 'INR',
-      interval,
-      status: 'captured',
-    });
-    await this.paymentRepository.save(payment);
-
-    this.logger.log(`Payment callback: user=${body.userId} plan=${body.planId} payment=${body.razorpayPaymentId}`);
-
-    return {
-      success: true,
-      user: {
-        id: user.id,
-        plan: body.planId,
-        isPremium: true,
-        planExpiresAt: expiresAt.toISOString(),
-      },
-    };
+    return { success: true };
   }
 
   @Post('webhook')

@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({ origin: true, credentials: true });
+
   app.getHttpAdapter().get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

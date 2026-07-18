@@ -159,31 +159,6 @@ export class RazorpayController {
 
   // ── Subscription (autopay) endpoints ──
 
-  @Post('create-subscription')
-  async createSubscription(@Body() body: { planId: string; userId?: string; interval?: 'monthly' | 'yearly'; country?: string }) {
-    if (!body.planId) {
-      return { success: false, error: 'planId is required' };
-    }
-
-    const subscription = await this.razorpayPaymentService.createSubscription(
-      body.planId,
-      body.interval || 'monthly',
-      body.userId || 'anonymous',
-    );
-
-    if (!subscription) {
-      return { success: false, error: 'Failed to create subscription' };
-    }
-
-    return {
-      success: true,
-      subscriptionId: subscription.id,
-      keyId: this.configService.get<string>('RAZORPAY_KEY_ID'),
-      planId: body.planId,
-      interval: body.interval || 'monthly',
-    };
-  }
-
   @Post('create-subscription-link')
   async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string }) {
     if (!body.planId || !body.userId) {
@@ -231,34 +206,6 @@ export class RazorpayController {
       amount: result.amount,
       currency: result.currency,
     };
-  }
-
-  @Post('subscription-callback')
-  async subscriptionCallback(@Body() body: {
-    razorpayPaymentId: string;
-    razorpaySubscriptionId: string;
-    razorpaySignature: string;
-    planId: string;
-    userId?: string;
-    interval?: 'monthly' | 'yearly';
-  }) {
-    const isValid = await this.razorpayPaymentService.verifySubscriptionSignature(
-      body.razorpaySubscriptionId,
-      body.razorpayPaymentId,
-      body.razorpaySignature,
-    );
-    if (!isValid) {
-      return { success: false, error: 'Payment verification failed' };
-    }
-
-    const plan = this.razorpayPaymentService.getPlanConfig(body.planId);
-    if (!plan) {
-      return { success: false, error: 'Invalid plan' };
-    }
-
-    this.logger.log(`Subscription authorized: sub=${body.razorpaySubscriptionId} payment=${body.razorpayPaymentId} plan=${body.planId}`);
-
-    return { success: true };
   }
 
   @Post('cancel-subscription')

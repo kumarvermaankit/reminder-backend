@@ -313,10 +313,27 @@ export class RazorpayPaymentService {
     }
   }
 
-  async createCustomer(name: string, contact: string, email: string, userId: string): Promise<any> {
+  async findOrCreateCustomer(name: string, contact: string, email: string, userId: string): Promise<any> {
     if (!this.razorpay) {
       throw new Error('Razorpay not configured — check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET');
     }
+
+    const lookupKey = contact || email;
+    if (lookupKey) {
+      try {
+        const filter: any = { count: 5 };
+        if (email) filter.email = email;
+        if (contact) filter.contact = contact;
+        const existing = await this.razorpay.customers.all(filter);
+        if (existing?.items?.length > 0) {
+          this.logger.log(`Found existing Razorpay customer: id=${existing.items[0].id} email=${email} contact=${contact}`);
+          return existing.items[0];
+        }
+      } catch (lookupErr) {
+        this.logger.warn(`Razorpay customer lookup failed (proceeding to create): ${lookupErr.message}`);
+      }
+    }
+
     try {
       const customer = await this.razorpay.customers.create({
         name,
@@ -324,6 +341,7 @@ export class RazorpayPaymentService {
         email,
         notes: { userId },
       });
+      this.logger.log(`Created new Razorpay customer: id=${customer.id} userId=${userId}`);
       return customer;
     } catch (error) {
       this.logger.error(`Razorpay createCustomer failed: ${error?.error?.description || error.message || error}`);

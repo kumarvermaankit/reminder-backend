@@ -185,7 +185,7 @@ export class RazorpayController {
       const email = body.email || user.email || '';
       const contact = body.contact || user.phone || '';
 
-      const customer = await this.razorpayPaymentService.createCustomer(name, contact, email, user.id);
+      const customer = await this.razorpayPaymentService.findOrCreateCustomer(name, contact, email, user.id);
 
       await this.userRepository.update(user.id, {
         razorpayCustomerId: customer.id,

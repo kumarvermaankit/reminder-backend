@@ -236,7 +236,7 @@ export class RazorpayController {
   }
 
   @Post('create-subscription-link')
-  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string; trialDays?: number }) {
+  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string; trialDays?: number; contact?: string; email?: string }) {
     if (!body.planId || !body.userId) {
       return { success: false, error: 'planId and userId are required' };
     }
@@ -248,6 +248,8 @@ export class RazorpayController {
       body.country || 'IN',
       body.customerId,
       body.trialDays,
+      body.contact,
+      body.email,
     );
 
     if (!result) {

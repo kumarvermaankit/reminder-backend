@@ -225,6 +225,8 @@ export class RazorpayPaymentService {
     countryCode: string = 'IN',
     customerId?: string,
     trialDays?: number,
+    contact?: string,
+    email?: string,
   ): Promise<any> {
     if (!this.razorpay) return null;
     const plan = this.plans.find((p) => p.id === planId);
@@ -256,9 +258,9 @@ export class RazorpayPaymentService {
 
       if (!customerId) {
         const customer = await this.razorpay.customers.create({
-          name: '',
-          contact: '',
-          email: '',
+          name: plan.name,
+          contact: contact || '0000000000',
+          email: email || `user_${userId}@heyping.in`,
           notes: { userId, planId },
         });
         customerId = customer.id;
@@ -269,6 +271,11 @@ export class RazorpayPaymentService {
         customer_id: customerId,
         amount: 0,
         currency,
+        customer: {
+          name: plan.name,
+          contact: contact || '0000000000',
+          email: email || `user_${userId}@heyping.in`,
+        },
         description: `${plan.name} (${interval})`,
       });
 

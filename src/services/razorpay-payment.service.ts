@@ -268,14 +268,12 @@ export class RazorpayPaymentService {
 
       const link = await this.razorpay.subscriptions.createRegistrationLink({
         subscription_id: subscription.id,
-        customer_id: customerId,
-        amount: 0,
-        currency,
         customer: {
           name: plan.name,
           contact: contact || '0000000000',
           email: email || `user_${userId}@heyping.in`,
         },
+        notify: { sms: false, email: false },
         description: `${plan.name} (${interval})`,
       });
 

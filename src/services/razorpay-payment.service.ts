@@ -191,7 +191,6 @@ export class RazorpayPaymentService {
     const plan = this.plans.find((p) => p.id === planId);
     if (!plan) return null;
 
-    const razorpayPlanId = this.getRazorpayPlanId(planId, interval);
     const currency = 'INR';
     const amount = interval === 'yearly'
       ? (plan.pricing_yearly[currency] || plan.pricing_yearly['USD'])
@@ -200,29 +199,22 @@ export class RazorpayPaymentService {
     const period = interval === 'yearly' ? 'yearly' : 'monthly';
 
     try {
-      const existing = await this.razorpay.plans.fetch(razorpayPlanId);
-      this.logger.log(`Razorpay plan ${razorpayPlanId} already exists`);
-      return existing;
-    } catch {
-      try {
-        const newPlan = await this.razorpay.plans.create({
-          period,
-          interval: 1,
-          item: {
-            name: `${plan.name} (${interval})`,
-            amount: Math.round(amount),
-            currency,
-            description: plan.description,
-          },
-          id: razorpayPlanId,
-          notes: { planId, interval },
-        });
-        this.logger.log(`Created Razorpay plan ${razorpayPlanId}`);
-        return newPlan;
-      } catch (error) {
-        this.logger.error(`Failed to create Razorpay plan ${razorpayPlanId}:`, error);
-        return null;
-      }
+      const newPlan = await this.razorpay.plans.create({
+        period,
+        interval: 1,
+        item: {
+          name: `${plan.name} (${interval})`,
+          amount: Math.round(amount),
+          currency,
+          description: plan.description,
+        },
+        notes: { planId, interval },
+      });
+      this.logger.log(`Created Razorpay plan: id=${newPlan.id} planId=${planId} interval=${interval}`);
+      return newPlan;
+    } catch (error) {
+      this.logger.error(`Failed to create Razorpay plan (planId=${planId} interval=${interval}):`, error?.error?.description || error.message || error);
+      return null;
     }
   }
 

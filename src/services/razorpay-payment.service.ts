@@ -266,11 +266,16 @@ export class RazorpayPaymentService {
         customerId = customer.id;
       }
 
+      if (!contact) {
+        throw new Error('contact (phone number with country code) is required to create a subscription link');
+      }
+
       const link = await this.razorpay.subscriptions.createRegistrationLink({
+        type: 'subscription',
         subscription_id: subscription.id,
         customer: {
           name: plan.name,
-          contact: contact || '0000000000',
+          contact,
           email: email || `user_${userId}@heyping.in`,
         },
         notify: { sms: false, email: false },

@@ -241,6 +241,13 @@ export class RazorpayController {
       return { success: false, error: 'planId and userId are required' };
     }
 
+    let contact = body.contact;
+    let email = body.email;
+    if (!contact) {
+      const user = await this.userRepository.findOne({ where: { id: body.userId } });
+      if (user?.phone) contact = user.phone;
+    }
+
     const result = await this.razorpayPaymentService.createSubscriptionLink(
       body.planId,
       body.interval || 'monthly',
@@ -248,8 +255,8 @@ export class RazorpayController {
       body.country || 'IN',
       body.customerId,
       body.trialDays,
-      body.contact,
-      body.email,
+      contact,
+      email,
     );
 
     if (!result) {

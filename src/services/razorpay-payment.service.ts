@@ -264,7 +264,7 @@ export class RazorpayPaymentService {
         customerId = customer.id;
       }
 
-      const link = await this.razorpay.subscriptions.createLink({
+      const link = await this.razorpay.subscriptions.createRegistrationLink({
         subscription_id: subscription.id,
         customer_id: customerId,
         amount: 0,

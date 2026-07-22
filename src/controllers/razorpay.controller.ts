@@ -172,6 +172,14 @@ export class RazorpayController {
       return { success: false, error: 'User not found' };
     }
 
+    if (user.razorpayCustomerId) {
+      return {
+        success: true,
+        customerId: user.razorpayCustomerId,
+        existing: true,
+      };
+    }
+
     try {
       const name = body.name || user.name || 'User';
       const email = body.email || user.email || '';
@@ -180,6 +188,7 @@ export class RazorpayController {
       const customer = await this.razorpayPaymentService.createCustomer(name, contact, email, user.id);
 
       await this.userRepository.update(user.id, {
+        razorpayCustomerId: customer.id,
         name,
         ...(body.email && { email: body.email }),
         ...(body.contact && { phone: body.contact }),
@@ -193,6 +202,7 @@ export class RazorpayController {
         name: customer.name,
         email: customer.email,
         contact: customer.contact,
+        existing: false,
       };
     } catch (error) {
       const detail = error?.error?.description || error?.message || error;

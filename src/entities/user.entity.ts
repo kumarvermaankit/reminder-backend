@@ -60,6 +60,9 @@ export class User {
   @Column({ name: 'plan', type: 'varchar', length: 20, default: 'free' })
   plan: PlanType;
 
+  @Column({ name: 'razorpay_customer_id', nullable: true })
+  razorpayCustomerId: string;
+
   @Column({ name: 'razorpay_subscription_id', nullable: true })
   razorpaySubscriptionId: string;
 

@@ -258,7 +258,9 @@ export class RazorpayPaymentService {
         subscriptionOptions.trial_period_days = trialDays;
       }
 
+      console.log('subscriptionOptions', JSON.stringify(subscriptionOptions));
       const subscription = await this.razorpay.subscriptions.create(subscriptionOptions);
+      console.log('subscription created', JSON.stringify({ id: subscription.id, status: subscription.status }));
 
       if (!customerId) {
         const customer = await this.razorpay.customers.create({
@@ -270,6 +272,7 @@ export class RazorpayPaymentService {
         customerId = customer.id;
       }
 
+      console.log('creating registration link for subscription:', subscription.id, 'contact:', contact);
       const link = await this.razorpay.subscriptions.createRegistrationLink({
         subscription_id: subscription.id,
         customer: {
@@ -277,7 +280,7 @@ export class RazorpayPaymentService {
           contact,
           email: email || `user_${userId}@heyping.in`,
         },
-        notify: { sms: false, email: false },
+        notify: { sms: true, email: true },
         description: `${plan.name} (${interval})`,
       });
 
@@ -298,7 +301,8 @@ export class RazorpayPaymentService {
         trialEndsAt: planTrialEnd ? planTrialEnd.toISOString() : undefined,
       };
     } catch (error) {
-      this.logger.error('Failed to create subscription link:', error);
+      console.log('subscription link error details:', JSON.stringify(error?.error || error, null, 2));
+      this.logger.error('Failed to create subscription link:', error?.error?.description || error.message || error);
       return null;
     }
   }

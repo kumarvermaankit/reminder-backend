@@ -239,10 +239,14 @@ export class RazorpayPaymentService {
     const totalCount = interval === 'yearly' ? 12 : 24;
 
     try {
+      if (!contact) {
+        throw new Error('contact (phone number with country code) is required to create a subscription link');
+      }
+
       const subscriptionOptions: any = {
         plan_id: razorpayPlan.id,
         total_count: totalCount,
-        customer_notify: true,
+        customer_notify: false,
         notes: { userId, planId, interval },
       };
 
@@ -259,19 +263,14 @@ export class RazorpayPaymentService {
       if (!customerId) {
         const customer = await this.razorpay.customers.create({
           name: plan.name,
-          contact: contact || '0000000000',
+          contact,
           email: email || `user_${userId}@heyping.in`,
           notes: { userId, planId },
         });
         customerId = customer.id;
       }
 
-      if (!contact) {
-        throw new Error('contact (phone number with country code) is required to create a subscription link');
-      }
-
       const link = await this.razorpay.subscriptions.createRegistrationLink({
-        type: 'subscription',
         subscription_id: subscription.id,
         customer: {
           name: plan.name,
@@ -286,7 +285,7 @@ export class RazorpayPaymentService {
 
       return {
         subscriptionId: subscription.id,
-        shortUrl: link.short_url,
+        shortUrl: link.link || link.short_url,
         planId,
         interval,
         amount: interval === 'yearly'

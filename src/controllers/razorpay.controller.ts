@@ -213,26 +213,108 @@ export class RazorpayController {
 
   // ── Subscription (autopay) endpoints ──
 
+  private normalizePhone(phone: string): string {
+    return (phone || '').replace(/[\s\-()]/g, '').trim();
+  }
+
+  private buildUserStatus(user: User, isNewUser = false) {
+    const now = new Date();
+    const isOnTrial = this.planGuardService.isOnTrial(user);
+    const hasUsedTrial = !!user.trialEndsAt;
+    const trialEligible = !hasUsedTrial;
+    const hasActiveAccess = this.planGuardService.hasActiveAccess(user);
+    const hasAutopay = !!user.razorpaySubscriptionId;
+    const daysRemaining = this.planGuardService.getDaysRemaining(user);
+
+    let nextAction: 'start_trial' | 'setup_autopay' | 'talk_to_ping' | 'manage';
+    if (hasActiveAccess && hasAutopay) {
+      nextAction = 'talk_to_ping';
+    } else if (hasActiveAccess && isOnTrial && !hasAutopay) {
+      nextAction = 'setup_autopay';
+    } else if (trialEligible) {
+      nextAction = 'start_trial';
+    } else {
+      nextAction = 'setup_autopay';
+    }
+
+    return {
+      success: true,
+      userId: user.id,
+      isNewUser,
+      isActive: user.isActive,
+      name: user.name,
+      phone: user.phone,
+      country: user.country,
+      plan: user.plan,
+      isPremium: user.isPremium,
+      isOnTrial,
+      hasUsedTrial,
+      trialEligible,
+      trialEndsAt: user.trialEndsAt?.toISOString() || null,
+      hasActiveAccess,
+      hasAutopay,
+      daysRemaining,
+      nextAction,
+      trialDays: 5,
+    };
+  }
+
   @Post('find-or-create-user')
-  async findOrCreateUser(@Body() body: { phone?: string; email?: string }) {
+  async findOrCreateUser(
+    @Body()
+    body: {
+      phone?: string;
+      email?: string;
+      name?: string;
+      country?: string;
+      location?: string;
+    },
+  ) {
     if (!body.phone && !body.email) {
       return { success: false, error: 'Phone or email required' };
     }
-    let user: User;
-    if (body.phone) {
-      user = await this.userService.getUserByPhone(body.phone);
-    } else {
+
+    const phone = body.phone ? this.normalizePhone(body.phone) : undefined;
+    const country = (body.country || body.location || 'IN').toUpperCase().slice(0, 2);
+
+    let user: User | null = null;
+    if (phone) {
+      user = await this.userService.getUserByPhone(phone);
+    }
+    if (!user && body.email) {
       user = await this.userService.getUserByEmail(body.email);
     }
+
+    let isNewUser = false;
     if (!user) {
+      isNewUser = true;
+      const safeEmail =
+        body.email ||
+        (phone ? `user_${phone.replace(/\D/g, '')}@heyping.in` : `user_${Date.now()}@heyping.in`);
       user = await this.userService.createUser({
-        phone: body.phone || '',
-        email: body.email || '',
+        phone: phone || null,
+        email: safeEmail,
+        name: body.name?.trim() || 'Ping User',
+        country,
+        preferredContactMethod: phone ? 'whatsapp' : 'email',
         isPremium: false,
         plan: 'free',
-      });
+        isActive: true,
+      } as any);
+    } else {
+      const updates: Partial<User> = {};
+      if (body.name?.trim() && body.name.trim() !== user.name) updates.name = body.name.trim();
+      if (phone && phone !== user.phone) updates.phone = phone;
+      if (country && country !== user.country) updates.country = country;
+      if (Object.keys(updates).length > 0) {
+        await this.userRepository.update(user.id, updates as any);
+        user = { ...user, ...updates };
+      }
     }
-    return { success: true, userId: user.id };
+
+    // Refresh plan expiry side-effects before returning status
+    user = await this.planGuardService.getUserWithPlan(user.id);
+    return this.buildUserStatus(user, isNewUser);
   }
 
   @Post('create-subscription-link')
@@ -263,11 +345,26 @@ export class RazorpayController {
       return { success: false, error: 'Failed to create subscription link' };
     }
 
-    await this.userRepository.update(body.userId, {
+    const userUpdates: any = {
       razorpaySubscriptionId: result.subscriptionId,
       razorpayPlanId: result.razorpayPlanId,
       subscriptionInterval: body.interval || 'monthly',
-    });
+    };
+
+    // Trial + autopay: grant soft trial access now; first Razorpay charge is deferred.
+    if (body.trialDays && body.trialDays > 0) {
+      const user = await this.userRepository.findOne({ where: { id: body.userId } });
+      if (user && !user.trialEndsAt) {
+        const trialEndsAt = new Date(Date.now() + body.trialDays * 24 * 60 * 60 * 1000);
+        userUpdates.plan = body.planId;
+        userUpdates.isPremium = true;
+        userUpdates.trialEndsAt = trialEndsAt;
+        userUpdates.planExpiresAt = trialEndsAt;
+        userUpdates.isActive = true;
+      }
+    }
+
+    await this.userRepository.update(body.userId, userUpdates);
 
     await this.paymentRepository.save({
       userId: body.userId,
@@ -292,6 +389,8 @@ export class RazorpayController {
       interval: result.interval,
       amount: result.amount,
       currency: result.currency,
+      trialDays: body.trialDays || 0,
+      whatsappUrl: 'https://wa.me/918076569811',
     };
   }
 
@@ -382,8 +481,21 @@ export class RazorpayController {
       return { success: false, error: 'User not found' };
     }
 
+    if (user.trialEndsAt) {
+      const stillActive = user.trialEndsAt > new Date();
+      return {
+        success: false,
+        error: stillActive
+          ? 'Trial already active'
+          : 'Free trial already used. Please set up autopay to continue.',
+        trialEligible: false,
+        isOnTrial: stillActive,
+        trialEndsAt: user.trialEndsAt.toISOString(),
+      };
+    }
+
     const planId = (body.planId || 'helper') as any;
-    const trialDays = body.trialDays || 7;
+    const trialDays = body.trialDays || 5;
     const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
 
     await this.userRepository.update(body.userId, {
@@ -391,6 +503,7 @@ export class RazorpayController {
       isPremium: true,
       trialEndsAt,
       planExpiresAt: trialEndsAt,
+      isActive: true,
     });
 
     this.logger.log(`Trial started: user=${body.userId} plan=${planId} days=${trialDays} until=${trialEndsAt.toISOString()}`);
@@ -400,6 +513,7 @@ export class RazorpayController {
       planId,
       trialDays,
       trialEndsAt: trialEndsAt.toISOString(),
+      whatsappUrl: 'https://wa.me/918076569811',
     };
   }
 

@@ -246,49 +246,48 @@ export class RazorpayPaymentService {
       const subscriptionOptions: any = {
         plan_id: razorpayPlan.id,
         total_count: totalCount,
-        customer_notify: false,
+        customer_notify: 1,
+        quantity: 1,
         notes: { userId, planId, interval },
+        notify_info: {
+          notify_phone: contact,
+          notify_email: email || `user_${userId}@heyping.in`,
+        },
       };
 
+      // Razorpay has no trial_period_days — defer first charge with start_at.
       if (trialDays && trialDays > 0) {
-        subscriptionOptions.start_at = Math.floor(Date.now() / 1000);
-        subscriptionOptions.addons = [];
-        subscriptionOptions.quantity = 1;
-        subscriptionOptions.expire_by = Math.floor(Date.now() / 1000) + trialDays * 86400;
-        subscriptionOptions.trial_period_days = trialDays;
+        subscriptionOptions.start_at = Math.floor(Date.now() / 1000) + trialDays * 86400;
+        subscriptionOptions.expire_by = Math.floor(Date.now() / 1000) + 7 * 86400;
       }
 
-      console.log('subscriptionOptions', JSON.stringify(subscriptionOptions));
+      this.logger.log(`Creating subscription: ${JSON.stringify(subscriptionOptions)}`);
       const subscription = await this.razorpay.subscriptions.create(subscriptionOptions);
-      console.log('subscription created', JSON.stringify({ id: subscription.id, status: subscription.status }));
+      this.logger.log(`Subscription created: id=${subscription.id} status=${subscription.status} url=${subscription.short_url}`);
 
       if (!customerId) {
-        const customer = await this.razorpay.customers.create({
-          name: plan.name,
-          contact,
-          email: email || `user_${userId}@heyping.in`,
-          notes: { userId, planId },
-        });
-        customerId = customer.id;
+        try {
+          const customer = await this.findOrCreateCustomer(
+            plan.name,
+            contact,
+            email || `user_${userId}@heyping.in`,
+            userId,
+          );
+          customerId = customer.id;
+        } catch (customerErr) {
+          this.logger.warn(`Customer create/lookup skipped: ${customerErr?.message || customerErr}`);
+        }
       }
 
-      console.log('creating registration link for subscription:', subscription.id, 'contact:', contact);
-      const link = await this.razorpay.subscriptions.createRegistrationLink({
-        subscription_id: subscription.id,
-        customer: {
-          name: plan.name,
-          contact,
-          email: email || `user_${userId}@heyping.in`,
-        },
-        notify: { sms: true, email: true },
-        description: `${plan.name} (${interval})`,
-      });
+      if (!subscription.short_url) {
+        throw new Error(`Subscription ${subscription.id} created but short_url is missing`);
+      }
 
       const planTrialEnd = trialDays ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000) : undefined;
 
       return {
         subscriptionId: subscription.id,
-        shortUrl: link.link || link.short_url,
+        shortUrl: subscription.short_url,
         planId,
         interval,
         amount: interval === 'yearly'
@@ -301,8 +300,9 @@ export class RazorpayPaymentService {
         trialEndsAt: planTrialEnd ? planTrialEnd.toISOString() : undefined,
       };
     } catch (error) {
-      console.log('subscription link error details:', JSON.stringify(error?.error || error, null, 2));
-      this.logger.error('Failed to create subscription link:', error?.error?.description || error.message || error);
+      this.logger.error(
+        `Failed to create subscription link: ${JSON.stringify(error?.error || error?.message || error)}`,
+      );
       return null;
     }
   }

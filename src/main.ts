@@ -21,6 +21,8 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
   console.log('GEMINI_API_KEY loaded:', configService.get('GEMINI_API_KEY') ? 'YES' : 'NO');
+  console.log('Timezone:', process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone);
+  console.log('Server time:', new Date().toISOString());
 
   const port = parseInt(process.env.PORT || '5000', 10);
   await app.listen(port);

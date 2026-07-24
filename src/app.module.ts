@@ -60,7 +60,6 @@ import { CouponService } from './services/coupon.service';
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_DATABASE || 'reminder_app',
-      timezone: '+00:00',
       entities: [Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog, Payment, Coupon],
       synchronize: true,
     }),

@@ -109,9 +109,9 @@ export class SchedulerService {
       if (due.length === 0) return;
 
       this.logger.log(`Sending daily prompts to ${due.length} users`);
-      await Promise.allSettled(
-        due.map(user => this.notificationService.sendDailyPrompt(user)),
-      );
+      for (const user of due) {
+        await this.notificationService.sendDailyPrompt(user);
+      }
     } catch (error) {
       this.logger.error('Error processing daily prompts:', error);
     }

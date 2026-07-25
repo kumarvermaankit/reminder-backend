@@ -171,7 +171,9 @@ export class SchedulerService {
     });
 
     // Use original scheduledTime to prevent daily drift — add interval to the due time, not Date.now()
-    const nextTime = new Date(scheduledTime.getTime() + fresh.reminderInterval * 60 * 1000);
+    // Round to nearest second so parallel calls with sub-second timing differences produce the same nextTime
+    const rawMs = scheduledTime.getTime() + fresh.reminderInterval * 60 * 1000;
+    const nextTime = new Date(Math.round(rawMs / 1000) * 1000);
 
     // Guard against duplicate schedule insertion
     const existing = await this.scheduleRepository.findOne({
@@ -182,14 +184,19 @@ export class SchedulerService {
       return;
     }
 
-    await this.scheduleRepository.save(
-      this.scheduleRepository.create({
-        reminderId: reminder.id,
-        scheduledTime: nextTime,
-        isCompleted: false,
-        retryCount: 0,
-      }),
-    );
+    try {
+      await this.scheduleRepository.save(
+        this.scheduleRepository.create({
+          reminderId: reminder.id,
+          scheduledTime: nextTime,
+          isCompleted: false,
+          retryCount: 0,
+        }),
+      );
+    } catch (err) {
+      // Unique constraint violation — another parallel call already created this schedule
+      this.logger.warn(`Duplicate schedule insert for reminder ${reminder.id} at ${nextTime} (race), skipping`);
+    }
   }
 
   private async handleFailedSchedule(schedule: ReminderSchedule, error: Error) {

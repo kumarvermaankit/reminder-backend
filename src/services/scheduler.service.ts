@@ -102,20 +102,21 @@ export class SchedulerService {
     }
   }
 
-  @Cron('0 * * * * *')
-  async processDailyPrompts() {
-    try {
-      const due = await this.userService.getUsersDueForDailyPrompt();
-      if (due.length === 0) return;
-
-      this.logger.log(`Sending daily prompts to ${due.length} users`);
-      for (const user of due) {
-        await this.notificationService.sendDailyPrompt(user);
-      }
-    } catch (error) {
-      this.logger.error('Error processing daily prompts:', error);
-    }
-  }
+  // Daily prompt disabled per user request
+  // @Cron('0 * * * * *')
+  // async processDailyPrompts() {
+  //   try {
+  //     const due = await this.userService.getUsersDueForDailyPrompt();
+  //     if (due.length === 0) return;
+  //
+  //     this.logger.log(`Sending daily prompts to ${due.length} users`);
+  //     for (const user of due) {
+  //       await this.notificationService.sendDailyPrompt(user);
+  //     }
+  //   } catch (error) {
+  //     this.logger.error('Error processing daily prompts:', error);
+  //   }
+  // }
 
   private async processOne(schedule: ReminderSchedule): Promise<boolean> {
     try {

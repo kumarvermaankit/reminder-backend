@@ -74,7 +74,6 @@ export class NotificationService {
                 ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
                 : [
                     { id: `done:${schedule.id}`, title: 'Done ✅' },
-                    { id: `snooze_10:${schedule.id}`, title: 'Snooze 10 min' },
                   ];
               const allButtons = buttons.length < 3
                 ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]

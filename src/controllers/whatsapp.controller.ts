@@ -273,20 +273,11 @@ export class WhatsappController {
         await this.reminderService.markAsCompleted(reminder.id);
         await this.reminderService.deleteReminder(reminder.id);
         await this.reminderService.deleteAllSchedulesForReminder(reminder.id);
-      } else if (action === 'snooze_5') {
-        const nextTime = new Date(Date.now() + 5 * 60 * 1000);
-        await this.reminderService.createSchedule(reminder.id, nextTime);
-        const timeStr = nextTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
-        botResponse = `⏰ Snoozed "${reminder.title}" for 5 minutes. I'll remind you again at ${timeStr}.`;
-      } else if (action === 'snooze_10') {
-        const nextTime = new Date(Date.now() + 10 * 60 * 1000);
-        await this.reminderService.createSchedule(reminder.id, nextTime);
-        const timeStr = nextTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
-          botResponse = `⏰ Snoozed "${reminder.title}" for 10 minutes. I'll remind you again at ${timeStr}.`;
-        } else {
-          botResponse = "Got it!";
-        }
-        await this.whatsappService.sendWithMenu(userPhone, botResponse);
+      } else {
+        botResponse = "Got it!";
+      }
+
+      await this.whatsappService.sendWithMenu(userPhone, botResponse);
       await this.userContextService.pushMessage(reminder.userId, 'assistant', botResponse);
     } catch (error) {
       this.logger.error('Error handling button reply:', error);
@@ -571,6 +562,35 @@ export class WhatsappController {
           const botMsg = reminder
             ? `✅ Marked "${reminder.title}" as done!`
             : completionCheck.response || '✅ Done!';
+          await this.sendAssistantReply(userPhone, user.id, botMsg);
+          return;
+        }
+      }
+
+      // Check if user wants to snooze a reminder via text (custom snooze)
+      if (pendingReminders.length > 0) {
+        const snoozeMatch = message.trim().toLowerCase().match(
+          /^(snooze|remind me|remind|in)\s*(again\s*)?(in\s*)?(\d+)\s*(min|mins|minute|minutes|hour|hours|hr|hrs|h|day|days)?\s*$/i
+        );
+        if (snoozeMatch) {
+          const amount = parseInt(snoozeMatch[4], 10);
+          const unit = (snoozeMatch[5] || 'min').toLowerCase();
+          let snoozeMinutes: number;
+          if (unit.startsWith('hour') || unit === 'h' || unit === 'hr' || unit === 'hrs') {
+            snoozeMinutes = amount * 60;
+          } else if (unit.startsWith('day')) {
+            snoozeMinutes = amount * 1440;
+          } else {
+            snoozeMinutes = amount;
+          }
+          // Snooze the most recent pending reminder
+          const reminder = pendingReminders[pendingReminders.length - 1];
+          const nextTime = new Date(Date.now() + snoozeMinutes * 60 * 1000);
+          await this.reminderService.createSchedule(reminder.id, nextTime);
+          const displayUnit = unit.startsWith('day') ? 'day' : unit.startsWith('hour') || unit === 'h' || unit === 'hr' || unit === 'hrs' ? 'hour' : 'min';
+          const displayAmount = unit.startsWith('day') ? amount : unit.startsWith('hour') || unit === 'h' || unit === 'hr' || unit === 'hrs' ? amount : amount;
+          const timeStr = nextTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+          const botMsg = `⏰ Snoozed "${reminder.title}" for ${displayAmount} ${displayAmount === 1 ? displayUnit : displayUnit + 's'}. I'll remind you again at ${timeStr}.`;
           await this.sendAssistantReply(userPhone, user.id, botMsg);
           return;
         }

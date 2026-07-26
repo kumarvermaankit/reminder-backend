@@ -593,11 +593,11 @@ export class WhatsappController {
           await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
           return;
         }
-        const offsetMin = getOffsetMinutes(user.timezone, msgTimestamp);
         const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
 
-        // Start with msgTimestamp converted to user's local date
-        const localNow = new Date(msgTimestamp.getTime() + offsetMin * 60000);
+        // Compute offset at message time for localNow (current local time)
+        const msgOffsetMin = getOffsetMinutes(user.timezone, msgTimestamp);
+        const localNow = new Date(msgTimestamp.getTime() + msgOffsetMin * 60000);
         let hours = 9, minutes = 0; // default time
         let year = localNow.getUTCFullYear();
         let month = localNow.getUTCMonth();
@@ -621,13 +621,18 @@ export class WhatsappController {
         // Build the target date in user's local time
         let targetLocal = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
+        // Compute offset at the TARGET date (fixes DST mismatch — Bug 1)
+        const targetOffsetMin = getOffsetMinutes(user.timezone, targetLocal);
+
         // If dayOfWeek, adjust to next occurrence
         if (parsed.dayOfWeek) {
           const targetDay = dayMap[parsed.dayOfWeek.toLowerCase()];
           if (targetDay !== undefined) {
-            const currentDay = localNow.getUTCDay();
+            // Use targetLocal's day of week, NOT localNow's (fixes Bug 4)
+            const currentDay = targetLocal.getUTCDay();
             let daysUntil = (targetDay - currentDay + 7) % 7;
-            if (daysUntil === 0) daysUntil = 7; // next week
+            // Only skip to next week if today's time has already passed (fixes Bug 3)
+            if (daysUntil === 0 && targetLocal <= localNow) daysUntil = 7;
             targetLocal.setUTCDate(targetLocal.getUTCDate() + daysUntil);
             this.logger.log(`dayOfWeek: "${parsed.dayOfWeek}" → next in ${daysUntil} days`);
             if (!parsed.intervalMinutes) parsed.intervalMinutes = 10080;
@@ -639,10 +644,32 @@ export class WhatsappController {
           }
         }
 
-        // Convert back to UTC
-        const utcDate = new Date(targetLocal.getTime() - offsetMin * 60000);
-        this.logger.log(`Time: localTime="${parsed.localTime}" dayOfWeek="${parsed.dayOfWeek}" offset=${offsetMin}min targetLocal=${targetLocal.toISOString()} → utc=${utcDate.toISOString()}`);
+        // Convert back to UTC using target-date offset
+        // (fixes Bug 1 — DST mismatch when msg and target are in different DST periods)
+        const utcDate = new Date(targetLocal.getTime() - targetOffsetMin * 60000);
+        this.logger.log(`Time: localTime="${parsed.localTime}" dayOfWeek="${parsed.dayOfWeek}" msgOffset=${msgOffsetMin}min targetOffset=${targetOffsetMin}min targetLocal=${targetLocal.toISOString()} → utc=${utcDate.toISOString()}`);
         parsed.reminderDate = utcDate;
+      }
+
+      // Handle date-only reminders (no time specified) with default 9am local time
+      // This runs when AI set reminderDate but user didn't specify a time (Bug 2)
+      if (!parsed.localTime && !parsed.dayOfWeek && !parsed.intervalMinutes && parsed.reminderDate && msgTimestamp) {
+        if (user.timezone === 'UTC') {
+          await this.userContextService.setPendingTimezoneMessage(user.id, message);
+          const botMsg = `I see you want a reminder on ${parsed.reminderDate}! First, what's your city or timezone? (e.g. "Mumbai", "New York", "IST")`;
+          await this.whatsappService.sendWithMenu(userPhone, botMsg);
+          await this.userContextService.pushMessage(user.id, 'assistant', botMsg);
+          return;
+        }
+        const d = new Date(parsed.reminderDate);
+        if (!isNaN(d.getTime())) {
+          const offsetMin = getOffsetMinutes(user.timezone, d);
+          const targetLocal = new Date(Date.UTC(
+            d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 9, 0, 0, 0
+          ));
+          parsed.reminderDate = new Date(targetLocal.getTime() - offsetMin * 60000);
+          this.logger.log(`Date-only reminder: "${parsed.reminderDate}" → default 9am local`);
+        }
       }
 
       // Save user's name if AI extracted one

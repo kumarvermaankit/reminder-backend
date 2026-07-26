@@ -94,7 +94,7 @@ export const DISPLAY_TIMEZONES = [
 
 export function lookupTimezone(input: string): string | null {
   let key = input.toLowerCase().trim();
-  key = key.replace(/^(utc|gmt|etc\/gmt)\s*/i, '');
+  if (key.length > 3) key = key.replace(/^(utc|gmt|etc\/gmt)\s*/i, '');
   if (TIMEZONE_ALIASES[key]) return TIMEZONE_ALIASES[key];
 
   const offsetMatch = key.match(/^([+-])?\s*(\d{1,2})(?::(\d{2})|(\d{2}))?$/);

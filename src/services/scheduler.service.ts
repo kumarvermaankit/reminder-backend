@@ -173,8 +173,18 @@ export class SchedulerService {
 
     // Use original scheduledTime to prevent daily drift — add interval to the due time, not Date.now()
     // Round to nearest second so parallel calls with sub-second timing differences produce the same nextTime
-    const rawMs = scheduledTime.getTime() + fresh.reminderInterval * 60 * 1000;
-    const nextTime = new Date(Math.round(rawMs / 1000) * 1000);
+    const intervalMs = Math.max(fresh.reminderInterval || 1, 1) * 60 * 1000;
+    let nextMs = scheduledTime.getTime() + intervalMs;
+    const nowMs = Date.now();
+    // If next fire is already overdue (TZ skew / missed ticks), jump forward from now
+    // so we don't spam every cron minute with catch-up schedules.
+    if (nextMs <= nowMs) {
+      nextMs = nowMs + intervalMs;
+      this.logger.warn(
+        `Persistent reminder ${reminder.id} nextTime was overdue; rescheduling from now + ${fresh.reminderInterval}m`,
+      );
+    }
+    const nextTime = new Date(Math.round(nextMs / 1000) * 1000);
 
     // Guard against duplicate schedule insertion
     const existing = await this.scheduleRepository.findOne({

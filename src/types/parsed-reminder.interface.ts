@@ -12,7 +12,10 @@ export interface ParsedReminder {
     type: 'daily' | 'weekly' | 'monthly' | 'yearly';
     interval?: number;
   };
+  /** Delay until first fire ("in 10 minutes") OR repeat interval ("every 10 minutes"). */
   intervalMinutes?: number;
+  /** True only when user explicitly asked for repeats ("every X minutes/hours"). */
+  isRecurring?: boolean;
   maxReminderCount?: number;
   userName?: string;
   // Notes

@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import cors from 'cors';
 
 async function bootstrap() {
+  // Keep Node process timezone UTC so Date/MySQL DATETIME stay consistent
+  process.env.TZ = process.env.TZ || 'UTC';
+
   const app = await NestFactory.create(AppModule);
 
   app.use(cors({

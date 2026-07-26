@@ -856,7 +856,7 @@ export class WhatsappController {
           }
           break;
         default:
-          botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp);
+          botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp, message);
       }
 
       const withCompactTips =
@@ -1604,10 +1604,19 @@ export class WhatsappController {
     );
   }
 
+  /** "in 10 minutes" = one-shot delay; "every 10 minutes" = recurring. */
+  private isExplicitRecurringReminder(message: string | undefined, parsed: any): boolean {
+    if (parsed?.isRecurring === true) return true;
+    if (parsed?.recurring) return true;
+    const msg = (message || '').toLowerCase();
+    return /\bevery\s+(\d+|minute|hour|day|week|morning|evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(msg);
+  }
+
   private async handleCreateReminderOrFallback(
     parsed: any,
     user: any,
     msgTimestamp?: Date,
+    message?: string,
   ): Promise<string> {
     if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
       this.logger.log(`Creating reminder...`);
@@ -1620,6 +1629,9 @@ export class WhatsappController {
             : new Date(nowRef.getTime() + 10 * 60 * 1000);
         const diffMs = reminderDate.getTime() - nowRef.getTime();
         this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
+
+        const isPersistent = this.isExplicitRecurringReminder(message, parsed);
+        const reminderInterval = isPersistent ? (parsed.intervalMinutes || 0) : 0;
 
         // Check if user wants reminders for items in a list
         const listTitle = parsed.todoListTitle;
@@ -1672,7 +1684,7 @@ export class WhatsappController {
           }
         }
 
-        // Create the reminder
+        // Create a standalone reminder — do NOT auto-link to old todo items
         const created = await this.reminderService.createReminder({
           userId: user.id,
           title: parsed.title,
@@ -1680,9 +1692,9 @@ export class WhatsappController {
           reminderDate,
           msgTimestamp,
           isCompleted: false,
-          isPersistent: !!parsed.intervalMinutes,
-          reminderInterval: parsed.intervalMinutes || 0,
-          maxReminderCount: parsed.maxReminderCount || 0,
+          isPersistent,
+          reminderInterval,
+          maxReminderCount: isPersistent ? (parsed.maxReminderCount || 0) : 0,
           reminderCount: 0,
           todoItemId: null,
           metadata: {
@@ -1693,23 +1705,10 @@ export class WhatsappController {
           }
         });
 
-        // Auto-link reminder to a matching incomplete todo item
-        if (parsed.title) {
-          const matches = await this.todoListService.findItemsByContent(user.id, parsed.title);
-          if (matches.length > 0) {
-            const match = matches[0];
-            await this.reminderService.updateReminder(created.id, {
-              todoItemId: match.id,
-              description: `In ${match.list?.title || 'a list'} list`,
-            });
-            await this.todoListService.updateItemReminderAt(match.id, reminderDate);
-          }
-        }
-
         const displayTz = resolveDisplayTimezone(user.timezone, nowRef, reminderDate);
         const timeStr = formatRelativeTime(reminderDate, displayTz, nowRef);
-        const repeatInfo = parsed.intervalMinutes
-          ? ` (repeats every ${parsed.intervalMinutes} min)`
+        const repeatInfo = isPersistent && reminderInterval
+          ? ` (repeats every ${reminderInterval} min)`
           : '';
         return `✅ Reminder set! I'll remind you to "${created.title}" ${timeStr}${repeatInfo}.`;
       } catch (e) {

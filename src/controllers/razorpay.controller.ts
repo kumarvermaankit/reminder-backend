@@ -162,7 +162,7 @@ export class RazorpayController {
   // ── Customer endpoint ──
 
   @Post('create-customer')
-  async createCustomer(@Body() body: { userId: string; name?: string; email?: string; contact?: string }) {
+  async createCustomer(@Body() body: { userId: string; name?: string; email?: string; contact?: string; country?: string }) {
     if (!body.userId) {
       return { success: false, error: 'userId is required' };
     }
@@ -182,16 +182,21 @@ export class RazorpayController {
 
     try {
       const name = body.name || user.name || 'User';
-      const email = body.email || user.email || '';
-      const contact = body.contact || user.phone || '';
+      const email = body.email || user.email || `user_${user.id.slice(0, 8)}@heyping.in`;
+      const country = (body.country || user.country || 'IN').toUpperCase().slice(0, 2);
+      const contact = this.normalizePhone(body.contact || user.phone || '', country);
+
+      if (!contact || contact.length < 10) {
+        return { success: false, error: 'Valid phone number with country code is required' };
+      }
 
       const customer = await this.razorpayPaymentService.findOrCreateCustomer(name, contact, email, user.id);
 
       await this.userRepository.update(user.id, {
         razorpayCustomerId: customer.id,
         name,
+        phone: contact,
         ...(body.email && { email: body.email }),
-        ...(body.contact && { phone: body.contact }),
       } as any);
 
       this.logger.log(`Razorpay customer created: user=${user.id} customer=${customer.id}`);
@@ -201,7 +206,7 @@ export class RazorpayController {
         customerId: customer.id,
         name: customer.name,
         email: customer.email,
-        contact: customer.contact,
+        contact: customer.contact || contact,
         existing: false,
       };
     } catch (error) {
@@ -213,12 +218,59 @@ export class RazorpayController {
 
   // ── Subscription (autopay) endpoints ──
 
-  private normalizePhone(phone: string): string {
-    return (phone || '').replace(/[\s\-()]/g, '').trim();
+  /** Normalize to WhatsApp-style digits only (e.g. 918076569811). */
+  private normalizePhone(phone: string, countryCode: string = 'IN'): string {
+    let digits = (phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+
+    // Strip leading 00 international prefix
+    if (digits.startsWith('00')) digits = digits.slice(2);
+
+    const dialCodes: Record<string, string> = {
+      IN: '91', US: '1', GB: '44', UK: '44', AU: '61', CA: '1',
+      DE: '49', FR: '33', SG: '65', AE: '971',
+    };
+    const dial = dialCodes[countryCode.toUpperCase()] || '91';
+
+    // Local Indian mobile: 10 digits starting 6-9
+    if (countryCode.toUpperCase() === 'IN' && /^[6-9]\d{9}$/.test(digits)) {
+      return `${dial}${digits}`;
+    }
+
+    // Already has country code
+    if (digits.startsWith(dial) && digits.length >= dial.length + 8) {
+      return digits;
+    }
+
+    // US/CA 10-digit local
+    if ((countryCode === 'US' || countryCode === 'CA') && digits.length === 10) {
+      return `${dial}${digits}`;
+    }
+
+    // Fallback: if looks like local (too short for E.164), prepend dial
+    if (digits.length <= 11 && !digits.startsWith(dial)) {
+      return `${dial}${digits}`;
+    }
+
+    return digits;
+  }
+
+  private async findUserByPhoneVariants(phone: string): Promise<User | null> {
+    if (!phone) return null;
+    const variants = Array.from(new Set([
+      phone,
+      `+${phone}`,
+      phone.startsWith('91') && phone.length === 12 ? phone.slice(2) : null,
+    ].filter(Boolean))) as string[];
+
+    for (const variant of variants) {
+      const user = await this.userService.getUserByPhone(variant);
+      if (user) return user;
+    }
+    return null;
   }
 
   private buildUserStatus(user: User, isNewUser = false) {
-    const now = new Date();
     const isOnTrial = this.planGuardService.isOnTrial(user);
     const hasUsedTrial = !!user.trialEndsAt;
     const trialEligible = !hasUsedTrial;
@@ -256,6 +308,7 @@ export class RazorpayController {
       daysRemaining,
       nextAction,
       trialDays: 5,
+      whatsappUrl: `https://wa.me/918076569811?text=${encodeURIComponent('Hi Ping')}`,
     };
   }
 
@@ -274,47 +327,70 @@ export class RazorpayController {
       return { success: false, error: 'Phone or email required' };
     }
 
-    const phone = body.phone ? this.normalizePhone(body.phone) : undefined;
     const country = (body.country || body.location || 'IN').toUpperCase().slice(0, 2);
+    const phone = body.phone ? this.normalizePhone(body.phone, country) : undefined;
 
-    let user: User | null = null;
-    if (phone) {
-      user = await this.userService.getUserByPhone(phone);
-    }
-    if (!user && body.email) {
-      user = await this.userService.getUserByEmail(body.email);
+    if (body.phone && (!phone || phone.length < 10)) {
+      return { success: false, error: 'Enter a valid WhatsApp number with country code' };
     }
 
-    let isNewUser = false;
-    if (!user) {
-      isNewUser = true;
+    try {
+      let user: User | null = null;
+      if (phone) {
+        user = await this.findUserByPhoneVariants(phone);
+      }
+      if (!user && body.email) {
+        user = await this.userService.getUserByEmail(body.email);
+      }
+
+      // Recover from earlier format mismatches via generated email
       const safeEmail =
         body.email ||
-        (phone ? `user_${phone.replace(/\D/g, '')}@heyping.in` : `user_${Date.now()}@heyping.in`);
-      user = await this.userService.createUser({
-        phone: phone || null,
-        email: safeEmail,
-        name: body.name?.trim() || 'Ping User',
-        country,
-        preferredContactMethod: phone ? 'whatsapp' : 'email',
-        isPremium: false,
-        plan: 'free',
-        isActive: true,
-      } as any);
-    } else {
-      const updates: Partial<User> = {};
-      if (body.name?.trim() && body.name.trim() !== user.name) updates.name = body.name.trim();
-      if (phone && phone !== user.phone) updates.phone = phone;
-      if (country && country !== user.country) updates.country = country;
-      if (Object.keys(updates).length > 0) {
-        await this.userRepository.update(user.id, updates as any);
-        user = { ...user, ...updates };
+        (phone ? `user_${phone}@heyping.in` : `user_${Date.now()}@heyping.in`);
+      if (!user && phone) {
+        user = await this.userService.getUserByEmail(safeEmail);
       }
-    }
 
-    // Refresh plan expiry side-effects before returning status
-    user = await this.planGuardService.getUserWithPlan(user.id);
-    return this.buildUserStatus(user, isNewUser);
+      let isNewUser = false;
+      if (!user) {
+        isNewUser = true;
+        try {
+          user = await this.userService.createUser({
+            phone,
+            email: safeEmail,
+            name: body.name?.trim() || 'Ping User',
+            country,
+            preferredContactMethod: phone ? 'whatsapp' : 'email',
+            isPremium: false,
+            plan: 'free',
+            isActive: true,
+          } as any);
+        } catch (createErr: any) {
+          // Race / duplicate email — fetch existing
+          this.logger.warn(`createUser failed, trying lookup: ${createErr?.message || createErr}`);
+          user = (await this.userService.getUserByEmail(safeEmail))
+            || (phone ? await this.findUserByPhoneVariants(phone) : null);
+          if (!user) throw createErr;
+          isNewUser = false;
+        }
+      } else {
+        const updates: Partial<User> = {};
+        if (body.name?.trim() && body.name.trim() !== user.name) updates.name = body.name.trim();
+        // Canonicalize stored phone to digits-only WhatsApp format
+        if (phone && user.phone !== phone) updates.phone = phone;
+        if (country && country !== user.country) updates.country = country;
+        if (Object.keys(updates).length > 0) {
+          await this.userRepository.update(user.id, updates as any);
+          user = { ...user, ...updates };
+        }
+      }
+
+      user = await this.planGuardService.getUserWithPlan(user.id);
+      return this.buildUserStatus(user, isNewUser);
+    } catch (error: any) {
+      this.logger.error(`find-or-create-user failed: ${error?.message || error}`);
+      return { success: false, error: error?.message || 'Failed to identify user' };
+    }
   }
 
   @Post('create-subscription-link')
@@ -323,45 +399,52 @@ export class RazorpayController {
       return { success: false, error: 'planId and userId are required' };
     }
 
-    let contact = body.contact;
-    let email = body.email;
-    if (!contact) {
-      const user = await this.userRepository.findOne({ where: { id: body.userId } });
-      if (user?.phone) contact = user.phone;
+    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const country = (body.country || user.country || 'IN').toUpperCase().slice(0, 2);
+    let contact = this.normalizePhone(body.contact || user.phone || '', country);
+    const email = body.email || user.email || `user_${contact || body.userId}@heyping.in`;
+
+    if (!contact || contact.length < 10) {
+      return { success: false, error: 'Valid phone number with country code is required for autopay' };
     }
 
     const result = await this.razorpayPaymentService.createSubscriptionLink(
       body.planId,
       body.interval || 'monthly',
       body.userId,
-      body.country || 'IN',
-      body.customerId,
+      country,
+      body.customerId || user.razorpayCustomerId,
       body.trialDays,
       contact,
       email,
     );
 
     if (!result) {
-      return { success: false, error: 'Failed to create subscription link' };
+      return { success: false, error: 'Failed to create subscription link. Please try again.' };
     }
 
     const userUpdates: any = {
+      phone: contact,
       razorpaySubscriptionId: result.subscriptionId,
       razorpayPlanId: result.razorpayPlanId,
       subscriptionInterval: body.interval || 'monthly',
     };
+    if (result.customerId && !user.razorpayCustomerId) {
+      userUpdates.razorpayCustomerId = result.customerId;
+    }
 
     // Trial + autopay: grant soft trial access now; first Razorpay charge is deferred.
-    if (body.trialDays && body.trialDays > 0) {
-      const user = await this.userRepository.findOne({ where: { id: body.userId } });
-      if (user && !user.trialEndsAt) {
-        const trialEndsAt = new Date(Date.now() + body.trialDays * 24 * 60 * 60 * 1000);
-        userUpdates.plan = body.planId;
-        userUpdates.isPremium = true;
-        userUpdates.trialEndsAt = trialEndsAt;
-        userUpdates.planExpiresAt = trialEndsAt;
-        userUpdates.isActive = true;
-      }
+    if (body.trialDays && body.trialDays > 0 && !user.trialEndsAt) {
+      const trialEndsAt = new Date(Date.now() + body.trialDays * 24 * 60 * 60 * 1000);
+      userUpdates.plan = body.planId;
+      userUpdates.isPremium = true;
+      userUpdates.trialEndsAt = trialEndsAt;
+      userUpdates.planExpiresAt = trialEndsAt;
+      userUpdates.isActive = true;
     }
 
     await this.userRepository.update(body.userId, userUpdates);
@@ -390,7 +473,7 @@ export class RazorpayController {
       amount: result.amount,
       currency: result.currency,
       trialDays: body.trialDays || 0,
-      whatsappUrl: 'https://wa.me/918076569811',
+      whatsappUrl: `https://wa.me/918076569811?text=${encodeURIComponent('Hi Ping')}`,
     };
   }
 

@@ -173,6 +173,16 @@ describe('PlanGuardService', () => {
       mockUserRepo.findOne.mockResolvedValue(null);
       await expect(service.getUserWithPlan('999')).rejects.toThrow(ForbiddenException);
     });
+
+    it('keeps plan when planExpiresAt is null (manual admin override)', async () => {
+      const user = { id: '1', plan: 'manager', isPremium: true, planExpiresAt: null, trialEndsAt: null, couponExpiresAt: null } as User;
+      mockUserRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.getUserWithPlan('1');
+      expect(result.plan).toBe('manager');
+      expect(result.isPremium).toBe(true);
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('isOnTrial', () => {

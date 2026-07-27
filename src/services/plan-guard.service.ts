@@ -94,9 +94,9 @@ export class PlanGuardService {
 
     const trialActive = user.trialEndsAt && user.trialEndsAt > now;
     const couponActive = user.couponExpiresAt && user.couponExpiresAt > now;
-    const planActive = user.planExpiresAt && user.planExpiresAt > now;
+    const planExpired = user.planExpiresAt && user.planExpiresAt <= now;
 
-    if (!trialActive && !couponActive && !planActive && user.plan !== 'free') {
+    if (planExpired && !trialActive && !couponActive && user.plan !== 'free') {
       this.logger.log(`Plan expired for user ${userId}: resetting to free`);
       user.plan = 'free';
       user.isPremium = false;

@@ -250,7 +250,7 @@ export class RazorpayPaymentService {
         quantity: 1,
         notes: { userId, planId, interval },
         notify_info: {
-          notify_phone: contact,
+          notify_phone: contact.startsWith('+') ? contact : `+${contact}`,
           notify_email: email || `user_${userId}@heyping.in`,
         },
       };

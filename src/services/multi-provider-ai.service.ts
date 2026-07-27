@@ -114,9 +114,9 @@ export class MultiProviderAiService {
         costPerRequest: 0.001,
         speed: 500,
         models: {
-          parsing: 'gemini-1.5-flash',
-          response: 'gemini-1.5-flash',
-          completion: 'gemini-1.5-flash'
+          parsing: 'gemini-2.0-flash',
+          response: 'gemini-2.0-flash',
+          completion: 'gemini-2.0-flash'
         }
       });
     }

@@ -191,6 +191,20 @@ export class RazorpayPaymentService {
     const plan = this.plans.find((p) => p.id === planId);
     if (!plan) return null;
 
+    // Reuse an existing Razorpay plan for this planId+interval instead of creating duplicates
+    try {
+      const existing = await this.razorpay.plans.all({ count: 100 });
+      const match = existing?.items?.find(
+        (p: any) => p?.notes?.planId === planId && p?.notes?.interval === interval,
+      );
+      if (match) {
+        this.logger.log(`Reusing Razorpay plan: id=${match.id} planId=${planId} interval=${interval}`);
+        return match;
+      }
+    } catch (lookupErr) {
+      this.logger.warn(`Razorpay plan lookup failed (proceeding to create): ${lookupErr.message}`);
+    }
+
     const currency = 'INR';
     const amount = interval === 'yearly'
       ? (plan.pricing_yearly[currency] || plan.pricing_yearly['USD'])
@@ -248,7 +262,7 @@ export class RazorpayPaymentService {
         total_count: totalCount,
         customer_notify: 1,
         quantity: 1,
-        notes: { userId, planId, interval },
+        notes: { userId, planId, interval, ...(trialDays && trialDays > 0 ? { trialDays } : {}) },
         notify_info: {
           notify_phone: contact.startsWith('+') ? contact : `+${contact}`,
           notify_email: email || `user_${userId}@heyping.in`,

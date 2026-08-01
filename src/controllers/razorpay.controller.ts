@@ -437,15 +437,10 @@ export class RazorpayController {
       userUpdates.razorpayCustomerId = result.customerId;
     }
 
-    // Trial + autopay: grant soft trial access now; first Razorpay charge is deferred.
-    if (body.trialDays && body.trialDays > 0 && !user.trialEndsAt) {
-      const trialEndsAt = new Date(Date.now() + body.trialDays * 24 * 60 * 60 * 1000);
-      userUpdates.plan = body.planId;
-      userUpdates.isPremium = true;
-      userUpdates.trialEndsAt = trialEndsAt;
-      userUpdates.planExpiresAt = trialEndsAt;
-      userUpdates.isActive = true;
-    }
+    // Trial is granted via the subscription.authenticated webhook (only after the
+    // user actually authorizes the mandate), not at link creation — so users who
+    // never complete the flow get no free premium days. trialDays travels inside
+    // the subscription notes for the webhook to read.
 
     await this.userRepository.update(body.userId, userUpdates);
 
@@ -797,21 +792,62 @@ export class RazorpayController {
 
       // ── Subscription events ──
 
+      const getCycleEnd = (sub: any, interval: 'monthly' | 'yearly'): Date => {
+        if (sub?.current_end) {
+          return new Date(sub.current_end * 1000);
+        }
+        const days = this.razorpayPaymentService.getDefaultPlanDuration(interval);
+        return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      };
+
+      if (eventType === 'subscription.authenticated') {
+        const sub = event.payload.subscription.entity;
+        const notes = sub.notes || {};
+        const userId = notes.userId;
+        const trialDays = parseInt(notes.trialDays || '0', 10);
+        const planId = notes.planId || 'helper';
+        const interval = notes.interval || 'monthly';
+
+        if (userId && trialDays > 0) {
+          const existingUser = await this.userRepository.findOne({ where: { id: userId } });
+          if (existingUser && existingUser.trialEndsAt) {
+            this.logger.log(`Trial already used, skipping grant: user=${userId}`);
+            return { received: true };
+          }
+
+          const trialEnd = sub.start_at
+            ? new Date(sub.start_at * 1000)
+            : new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+
+          await this.userRepository.update(userId, {
+            isPremium: true,
+            plan: planId,
+            trialEndsAt: trialEnd,
+            planExpiresAt: trialEnd,
+            isActive: true,
+            subscriptionInterval: interval,
+          });
+
+          this.logger.log(`Trial granted after authorization: user=${userId} plan=${planId} until=${trialEnd.toISOString()}`);
+        }
+      }
+
       if (eventType === 'subscription.activated') {
         const sub = event.payload.subscription.entity;
         const notes = sub.notes || {};
         const userId = notes.userId;
-        const planId = sub.plan_id?.notes?.planId || notes.planId || 'helper';
-        const interval = sub.plan_id?.notes?.interval || notes.interval || 'monthly';
-        const days = this.razorpayPaymentService.getDefaultPlanDuration(interval);
-        const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        const planId = notes.planId || 'helper';
+        const interval = notes.interval || 'monthly';
 
         if (userId) {
+          const expiresAt = getCycleEnd(sub, interval);
+
           await this.userRepository.update(userId, {
             isPremium: true,
             plan: planId,
             razorpaySubscriptionId: sub.id,
             planExpiresAt: expiresAt,
+            subscriptionInterval: interval,
           });
 
           await this.paymentRepository.save({
@@ -833,13 +869,13 @@ export class RazorpayController {
         const sub = event.payload.subscription.entity;
         const notes = sub.notes || {};
         const userId = notes.userId;
-        const planId = sub.plan_id?.notes?.planId || notes.planId || 'helper';
-        const interval = sub.plan_id?.notes?.interval || notes.interval || 'monthly';
-        const days = this.razorpayPaymentService.getDefaultPlanDuration(interval);
-        const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        const planId = notes.planId || 'helper';
+        const interval = notes.interval || 'monthly';
         const payment = event.payload.payment?.entity;
 
         if (userId) {
+          const expiresAt = getCycleEnd(sub, interval);
+
           await this.userRepository.update(userId, {
             isPremium: true,
             planExpiresAt: expiresAt,
@@ -865,11 +901,11 @@ export class RazorpayController {
         const sub = event.payload.subscription.entity;
         const notes = sub.notes || {};
         const userId = notes.userId;
-        const planId = sub.plan_id?.notes?.planId || notes.planId || 'helper';
+        const planId = notes.planId || 'helper';
+        const interval = notes.interval || 'monthly';
 
         if (userId) {
-          const days = this.razorpayPaymentService.getDefaultPlanDuration('monthly');
-          const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+          const expiresAt = getCycleEnd(sub, interval);
 
           await this.userRepository.update(userId, {
             isPremium: true,
@@ -892,6 +928,7 @@ export class RazorpayController {
             razorpaySubscriptionId: null,
             razorpayPlanId: null,
             subscriptionInterval: null,
+            planExpiresAt: null,
           });
 
           this.logger.log(`Subscription cancelled via webhook: user=${userId} sub=${sub.id}`);
@@ -903,7 +940,26 @@ export class RazorpayController {
         const userId = sub.notes?.userId;
 
         if (userId) {
-          this.logger.warn(`Subscription halted: user=${userId} sub=${sub.id} — payment likely failed`);
+          // Payment failed — downgrade access instead of silently keeping premium.
+          // Keep razorpaySubscriptionId so the user can be re-linked / retried.
+          await this.userRepository.update(userId, {
+            isPremium: false,
+            plan: 'free',
+            planExpiresAt: null,
+          });
+
+          await this.paymentRepository.save({
+            userId,
+            razorpaySubscriptionId: sub.id,
+            razorpayOrderId: '',
+            planId: 'free',
+            amount: 0,
+            currency: 'INR',
+            interval: 'monthly',
+            status: 'subscription_halted',
+          });
+
+          this.logger.warn(`Subscription halted: user=${userId} sub=${sub.id} — payment failed, downgraded to free`);
         }
       }
 

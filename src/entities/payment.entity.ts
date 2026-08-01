@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
 
-export type PaymentStatus = 'created' | 'captured' | 'failed' | 'refunded' | 'subscription_active' | 'subscription_cancelled' | 'subscription_expired';
+export type PaymentStatus = 'created' | 'captured' | 'failed' | 'refunded' | 'subscription_active' | 'subscription_cancelled' | 'subscription_expired' | 'subscription_halted';
 
 @Entity('payments')
 export class Payment {

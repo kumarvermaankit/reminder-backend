@@ -318,6 +318,20 @@ export class WhatsappController {
       
       // Track last message time for inactivity ping
       await this.userService.updateUser(user.id, { lastMessageTime: msgTimestamp || new Date() });
+
+      // Trial/plan ended: block the assistant flow and point to subscribe.
+      // Pure free users (never had a trial) keep working normally.
+      const hadPremiumBefore = !!(user.trialEndsAt || user.planExpiresAt || user.couponExpiresAt);
+      if (hadPremiumBefore && !this.planGuardService.hasActiveAccess(user)) {
+        const name = (!user.name || user.name === 'there') ? '' : user.name;
+        const blockedMsg =
+          `⏰ ${name ? `Hey ${name}!` : 'Hey!'} Your free trial has ended.\n\n` +
+          `To keep using Ping — reminders, notes, lists and everything else — ` +
+          `resubscribe here:\n\n👉 https://heyping.in/subscribe`;
+        await this.whatsappService.sendWithMenu(userPhone, blockedMsg);
+        await this.userContextService.pushMessage(user.id, 'assistant', blockedMsg);
+        return;
+      }
       
       console.log("msgTimestamp", msgTimestamp);
       // // Auto-detect timezone from WhatsApp message timestamp + greeting

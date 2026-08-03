@@ -87,6 +87,9 @@ export class User {
   @Column({ name: 'coupon_expires_at', type: 'datetime', nullable: true })
   couponExpiresAt: Date;
 
+  @Column({ name: 'trial_end_notice_sent', default: false })
+  trialEndNoticeSent: boolean;
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

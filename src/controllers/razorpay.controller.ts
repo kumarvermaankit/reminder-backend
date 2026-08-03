@@ -307,7 +307,7 @@ export class RazorpayController {
       hasAutopay,
       daysRemaining,
       nextAction,
-      trialDays: 5,
+      trialDays: 6,
       whatsappUrl: `https://wa.me/918076569811?text=${encodeURIComponent('Hi Ping')}`,
     };
   }
@@ -573,7 +573,7 @@ export class RazorpayController {
     }
 
     const planId = (body.planId || 'helper') as any;
-    const trialDays = body.trialDays || 5;
+    const trialDays = body.trialDays || 6;
     const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
 
     await this.userRepository.update(body.userId, {

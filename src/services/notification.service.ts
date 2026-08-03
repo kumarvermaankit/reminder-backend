@@ -8,7 +8,9 @@ import { TodoListService } from './todo-list.service';
 import { StockService } from './stock.service';
 import { CricketService } from './cricket.service';
 import { IpoService } from './ipo.service';
+import { PlanGuardService } from './plan-guard.service';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
+import { Reminder } from '../entities/reminder.entity';
 import { User } from '../entities/user.entity';
 
 @Injectable()
@@ -22,8 +24,11 @@ export class NotificationService {
     private readonly stockService: StockService,
     private readonly cricketService: CricketService,
     private readonly ipoService: IpoService,
+    private readonly planGuardService: PlanGuardService,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Reminder)
+    private readonly reminderRepository: Repository<Reminder>,
   ) {}
 
   async sendReminder(schedule: ReminderSchedule): Promise<boolean> {
@@ -34,6 +39,18 @@ export class NotificationService {
       if (!user) {
         this.logger.error(`User not found for reminder ${schedule.id}`);
         return false;
+      }
+
+      // Trial/plan ended: stop reminders, notify once with subscribe link.
+      // Only applies to users who had a trial/plan/coupon that has since lapsed —
+      // pure free users (never had a trial) keep their free-plan reminders.
+      const hadPremiumBefore = !!(user.trialEndsAt || user.planExpiresAt || user.couponExpiresAt);
+      if (hadPremiumBefore && !this.planGuardService.hasActiveAccess(user)) {
+        this.logger.log(`User ${user.id} trial/plan ended, blocking reminder ${schedule.id}`);
+        await this.notifyTrialEndedOnce(user);
+        // Mark reminder completed so the schedule is not retried forever
+        await this.reminderRepository.update(reminder.id, { isCompleted: true });
+        return true;
       }
 
       // Check if user is in quiet hours
@@ -243,8 +260,41 @@ _${match.status}_`;
     return message;
   }
 
-  async sendDailyPrompt(user: User): Promise<boolean> {
+  private async notifyTrialEndedOnce(user: User): Promise<void> {
     try {
+      if (user.trialEndNoticeSent) return;
+
+      const name = (!user.name || user.name === 'there') ? '' : user.name;
+      const message = [
+        `⏰ ${name ? `Hey ${name}!` : 'Hey!'} Your free trial has ended.`,
+        '',
+        `Reminders are paused until you resubscribe.`,
+        '',
+        `👉 Continue with Ping at https://heyping.in/subscribe`,
+      ].join('\n');
+
+      const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
+      const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
+      const outsideWindow = hoursSinceLastMsg > 24;
+
+      if (outsideWindow) {
+        const bodyComponents = [{
+          type: 'body',
+          parameters: [{ type: 'text', text: message }],
+        }];
+        await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
+      } else {
+        await this.whatsappService.sendWithMenu(user.phone, message);
+      }
+
+      await this.userService.updateUser(user.id, { trialEndNoticeSent: true });
+      this.logger.log(`Trial-end notice sent to user ${user.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to send trial-end notice to user ${user.id}:`, error);
+    }
+  }
+
+  async sendDailyPrompt(user: User): Promise<boolean> {    try {
       const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
       const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
 
@@ -346,6 +396,13 @@ _${match.status}_`;
       });
       for (const user of inactives) {
         try {
+          // Skip users whose trial/plan ended — don't ping them, they must resubscribe
+          const hadPremiumBefore = !!(user.trialEndsAt || user.planExpiresAt || user.couponExpiresAt);
+          if (hadPremiumBefore && !this.planGuardService.hasActiveAccess(user)) {
+            this.logger.log(`Skipping inactivity ping for user ${user.id} (trial/plan ended)`);
+            continue;
+          }
+
           // Skip if we already pinged within the last 23 hours
           if (user.lastPingTime && user.lastPingTime.getTime() > pingCutoff.getTime()) continue;
 

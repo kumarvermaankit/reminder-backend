@@ -422,6 +422,10 @@ export class RazorpayController {
       return { success: false, error: 'User not found' };
     }
 
+    if (!user.phone) {
+      return { success: false, error: 'Add your WhatsApp number to your profile first' };
+    }
+
     const country = (body.country || user.country || 'IN').toUpperCase().slice(0, 2);
     let contact = this.normalizePhone(body.contact || user.phone || '', country);
     const email = body.email || user.email || `user_${contact || body.userId}@heyping.in`;
@@ -569,6 +573,10 @@ export class RazorpayController {
     const user = await this.userRepository.findOne({ where: { id: authUser.id } });
     if (!user) {
       return { success: false, error: 'User not found' };
+    }
+
+    if (!user.phone) {
+      return { success: false, error: 'Add your WhatsApp number to your profile first' };
     }
 
     if (user.trialEndsAt) {

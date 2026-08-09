@@ -86,10 +86,12 @@ export class AuthService {
     return this.sanitize(user);
   }
 
-  /** Collect name / WhatsApp number / country after login (profile completion). */
+  /** Collect name / WhatsApp number / country after login (profile completion).
+   *  `force` = user confirmed attaching an existing number to this account. */
   async updateProfile(
     userId: string,
     data: { name?: string; phone?: string; country?: string },
+    force = false,
   ): Promise<Partial<User>> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
@@ -102,7 +104,23 @@ export class AuthService {
       if (!normalized) throw new BadRequestException('Invalid WhatsApp number');
       const owner = await this.userRepository.findOne({ where: { phone: normalized } });
       if (owner && owner.id !== userId) {
-        throw new ConflictException('This WhatsApp number is already linked to another account');
+        const isPlaceholder = !!(
+          owner.email && owner.email.startsWith('user_') && owner.email.endsWith('@heyping.in')
+        );
+        if (!force) {
+          const error: any = new ConflictException(
+            'This WhatsApp number already exists in our system. Would you like to attach it to this email?',
+          );
+          error.phoneConflict = true;
+          throw error;
+        }
+        if (!isPlaceholder) {
+          throw new ConflictException(
+            'This number is attached to another account that has an email. Please log in with that account instead.',
+          );
+        }
+        await this.userRepository.update(owner.id, { phone: null });
+        this.logger.log(`Phone ${normalized} transferred from placeholder user ${owner.id} to user ${userId}`);
       }
       update.phone = normalized;
       update.preferredContactMethod = 'whatsapp';

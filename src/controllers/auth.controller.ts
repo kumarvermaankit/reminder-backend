@@ -67,16 +67,17 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async updateProfile(
     @CurrentUser() authUser: AuthUser,
-    @Body() body: { name?: string; phone?: string; country?: string },
+    @Body() body: { name?: string; phone?: string; country?: string; force?: boolean },
   ) {
     try {
-      const user = await this.authService.updateProfile(authUser.id, body);
+      const user = await this.authService.updateProfile(authUser.id, body, !!body.force);
       return { success: true, user };
     } catch (error) {
       return {
         success: false,
         error: error.message || 'Failed to update profile',
         statusCode: error.status || 400,
+        ...(error.phoneConflict ? { phoneConflict: true } : {}),
       };
     }
   }

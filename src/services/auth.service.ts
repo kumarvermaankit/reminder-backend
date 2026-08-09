@@ -104,9 +104,7 @@ export class AuthService {
       if (!normalized) throw new BadRequestException('Invalid WhatsApp number');
       const owner = await this.userRepository.findOne({ where: { phone: normalized } });
       if (owner && owner.id !== userId) {
-        const isPlaceholder = !!(
-          owner.email && owner.email.startsWith('user_') && owner.email.endsWith('@heyping.in')
-        );
+        const isPlaceholder = !owner.email || owner.email.startsWith('user_');
         if (!force) {
           const error: any = new ConflictException(
             'This WhatsApp number already exists in our system. Would you like to attach it to this email?',

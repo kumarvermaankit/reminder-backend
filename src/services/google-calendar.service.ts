@@ -48,6 +48,29 @@ export class GoogleCalendarService {
     });
   }
 
+  getLoginAuthUrl(): string {
+    const oauth2Client = this.getOAuth2Client();
+    return oauth2Client.generateAuthUrl({
+      access_type: 'online',
+      scope: [
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+      ],
+      state: 'ping-login',
+      prompt: 'select_account',
+    });
+  }
+
+  async getLoginUserInfo(code: string): Promise<{ email: string; name?: string; picture?: string }> {
+    const { google } = require('googleapis');
+    const oauth2Client = this.getOAuth2Client();
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    return { email: data.email, name: data.name, picture: data.picture };
+  }
+
   async handleCallback(code: string, state: string): Promise<{ email: string; phone: string }> {
     const { google } = require('googleapis');
     const oauth2Client = this.getOAuth2Client();

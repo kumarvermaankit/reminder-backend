@@ -86,6 +86,36 @@ export class AuthService {
     return this.sanitize(user);
   }
 
+  /** Find an existing user by Google email, or create one. Returns sanitized user + JWT. */
+  async loginWithGoogle(email: string, name?: string): Promise<{ user: Partial<User>; token: string }> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) throw new UnauthorizedException('Google account has no email');
+
+    let user = await this.userRepository.findOne({ where: { email: normalized } });
+    if (!user) {
+      user = await this.userRepository.save(
+        this.userRepository.create({
+          email: normalized,
+          name: name?.trim() || normalized.split('@')[0],
+          country: 'IN',
+          preferredContactMethod: 'email',
+          isActive: true,
+          plan: 'free',
+        }),
+      );
+      this.logger.log(`User created via Google login: ${user.id} email=${normalized}`);
+    } else if (user.name && name && !user.name.trim()) {
+      await this.userRepository.update(user.id, { name: name.trim() });
+    }
+
+    return { user: this.sanitize(user), token: this.sign(user) };
+  }
+
+  /** Sign a JWT for an already-authenticated user (used by Google OAuth callback). */
+  signForUser(user: User): string {
+    return this.sign(user);
+  }
+
   /** Link an existing WhatsApp-created user to this email account (claim flow). */
   async claimUserByPhone(userId: string, phone: string, password: string): Promise<Partial<User>> {
     const user = await this.userRepository.findOne({ where: { id: userId } });

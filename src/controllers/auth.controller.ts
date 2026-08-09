@@ -63,6 +63,24 @@ export class AuthController {
     }
   }
 
+  @Post('profile')
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(
+    @CurrentUser() authUser: AuthUser,
+    @Body() body: { name?: string; phone?: string; country?: string },
+  ) {
+    try {
+      const user = await this.authService.updateProfile(authUser.id, body);
+      return { success: true, user };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to update profile',
+        statusCode: error.status || 400,
+      };
+    }
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() authUser: AuthUser) {

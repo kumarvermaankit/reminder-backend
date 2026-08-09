@@ -86,6 +86,33 @@ export class AuthService {
     return this.sanitize(user);
   }
 
+  /** Collect name / WhatsApp number / country after login (profile completion). */
+  async updateProfile(
+    userId: string,
+    data: { name?: string; phone?: string; country?: string },
+  ): Promise<Partial<User>> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const update: Partial<User> = {};
+    if (data.name?.trim()) update.name = data.name.trim();
+    if (data.country?.trim()) update.country = data.country.trim();
+    if (data.phone) {
+      const normalized = data.phone.trim().replace(/[^0-9]/g, '');
+      if (!normalized) throw new BadRequestException('Invalid WhatsApp number');
+      const owner = await this.userRepository.findOne({ where: { phone: normalized } });
+      if (owner && owner.id !== userId) {
+        throw new ConflictException('This WhatsApp number is already linked to another account');
+      }
+      update.phone = normalized;
+      update.preferredContactMethod = 'whatsapp';
+    }
+
+    await this.userRepository.update(userId, update);
+    this.logger.log(`Profile updated: user=${userId}`);
+    return this.sanitize({ ...user, ...update } as User);
+  }
+
   /** Find an existing user by Google email, or create one. Returns sanitized user + JWT. */
   async loginWithGoogle(email: string, name?: string): Promise<{ user: Partial<User>; token: string }> {
     const normalized = email.trim().toLowerCase();

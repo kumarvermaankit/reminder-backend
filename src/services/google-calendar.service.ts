@@ -48,9 +48,23 @@ export class GoogleCalendarService {
     });
   }
 
+  private getLoginCallbackUrl(): string {
+    const explicit = this.configService.get<string>('GOOGLE_LOGIN_CALLBACK_URL');
+    if (explicit) return explicit;
+    const calendarCallback = this.configService.get<string>('GOOGLE_CALLBACK_URL') || '';
+    try {
+      const url = new URL(calendarCallback);
+      url.pathname = '/auth/google/callback';
+      return url.toString();
+    } catch {
+      return 'https://reminder-backend-production-ping.up.railway.app/auth/google/callback';
+    }
+  }
+
   getLoginAuthUrl(): string {
     const oauth2Client = this.getOAuth2Client();
     return oauth2Client.generateAuthUrl({
+      redirect_uri: this.getLoginCallbackUrl(),
       access_type: 'online',
       scope: [
         'https://www.googleapis.com/auth/userinfo.email',
@@ -64,7 +78,10 @@ export class GoogleCalendarService {
   async getLoginUserInfo(code: string): Promise<{ email: string; name?: string; picture?: string }> {
     const { google } = require('googleapis');
     const oauth2Client = this.getOAuth2Client();
-    const { tokens } = await oauth2Client.getToken(code);
+    const { tokens } = await oauth2Client.getToken({
+      code,
+      redirect_uri: this.getLoginCallbackUrl(),
+    });
     oauth2Client.setCredentials(tokens);
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const { data } = await oauth2.userinfo.get();

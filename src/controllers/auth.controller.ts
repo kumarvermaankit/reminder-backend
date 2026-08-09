@@ -81,7 +81,7 @@ export class AuthController {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://heyping.in';
     try {
       if (!code || state !== 'ping-login') {
-        return res.redirect(`${frontendUrl}/login?google=error`);
+        return res.redirect(`${frontendUrl}/auth/callback?error=google_failed`);
       }
       const { email, name } = await this.googleCalendarService.getLoginUserInfo(code);
       const result = await this.authService.loginWithGoogle(email, name);
@@ -91,7 +91,7 @@ export class AuthController {
       return res.redirect(url.toString());
     } catch (error) {
       this.logger.error('Google login callback error:', error.message);
-      return res.redirect(`${frontendUrl}/login?google=error`);
+      return res.redirect(`${frontendUrl}/auth/callback?error=google_failed`);
     }
   }
 }

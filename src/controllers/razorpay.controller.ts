@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Headers, Req, Logger, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Headers, Req, Logger, Body, Query, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -7,6 +7,9 @@ import { RazorpayPaymentService } from '../services/razorpay-payment.service';
 import { PlanGuardService } from '../services/plan-guard.service';
 import { CouponService } from '../services/coupon.service';
 import { UserService } from '../services/user.service';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { CurrentUser } from '../decorators/current-user.decorator';
+import { AuthUser } from '../guards/jwt-auth.guard';
 import { User } from '../entities/user.entity';
 import { Payment } from '../entities/payment.entity';
 
@@ -162,12 +165,10 @@ export class RazorpayController {
   // ── Customer endpoint ──
 
   @Post('create-customer')
-  async createCustomer(@Body() body: { userId: string; name?: string; email?: string; contact?: string; country?: string }) {
-    if (!body.userId) {
-      return { success: false, error: 'userId is required' };
-    }
-
-    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+  @UseGuards(JwtAuthGuard)
+  async createCustomer(@CurrentUser() authUser: AuthUser, @Body() body: { userId?: string; name?: string; email?: string; contact?: string; country?: string }) {
+    const userId = authUser.id;
+    const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       return { success: false, error: 'User not found' };
     }
@@ -312,6 +313,22 @@ export class RazorpayController {
     };
   }
 
+  @Get('user-status')
+  @UseGuards(JwtAuthGuard)
+  async getUserStatus(@CurrentUser() authUser: AuthUser) {
+    const user = await this.userRepository.findOne({ where: { id: authUser.id } });
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+    const status = this.buildUserStatus(await this.planGuardService.getUserWithPlan(user.id));
+    return {
+      ...status,
+      phone: user.phone,
+      country: user.country,
+      name: user.name,
+    };
+  }
+
   @Post('find-or-create-user')
   async findOrCreateUser(
     @Body()
@@ -394,12 +411,13 @@ export class RazorpayController {
   }
 
   @Post('create-subscription-link')
-  async createSubscriptionLink(@Body() body: { planId: string; userId: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string; trialDays?: number; contact?: string; email?: string }) {
-    if (!body.planId || !body.userId) {
-      return { success: false, error: 'planId and userId are required' };
+  @UseGuards(JwtAuthGuard)
+  async createSubscriptionLink(@CurrentUser() authUser: AuthUser, @Body() body: { planId: string; userId?: string; interval?: 'monthly' | 'yearly'; country?: string; customerId?: string; trialDays?: number; contact?: string; email?: string }) {
+    if (!body.planId) {
+      return { success: false, error: 'planId is required' };
     }
 
-    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+    const user = await this.userRepository.findOne({ where: { id: authUser.id } });
     if (!user) {
       return { success: false, error: 'User not found' };
     }
@@ -415,7 +433,7 @@ export class RazorpayController {
     const result = await this.razorpayPaymentService.createSubscriptionLink(
       body.planId,
       body.interval || 'monthly',
-      body.userId,
+      authUser.id,
       country,
       body.customerId || user.razorpayCustomerId,
       body.trialDays,
@@ -442,10 +460,10 @@ export class RazorpayController {
     // never complete the flow get no free premium days. trialDays travels inside
     // the subscription notes for the webhook to read.
 
-    await this.userRepository.update(body.userId, userUpdates);
+    await this.userRepository.update(authUser.id, userUpdates);
 
     await this.paymentRepository.save({
-      userId: body.userId,
+      userId: authUser.id,
       razorpaySubscriptionId: result.subscriptionId,
       razorpayPlanId: result.razorpayPlanId,
       razorpayOrderId: '',
@@ -457,7 +475,7 @@ export class RazorpayController {
       metadata: { subscriptionUrl: result.shortUrl },
     });
 
-    this.logger.log(`Subscription link created: user=${body.userId} plan=${body.planId} sub=${result.subscriptionId}`);
+    this.logger.log(`Subscription link created: user=${authUser.id} plan=${body.planId} sub=${result.subscriptionId}`);
 
     return {
       success: true,
@@ -473,12 +491,9 @@ export class RazorpayController {
   }
 
   @Post('cancel-subscription')
-  async cancelSubscription(@Body() body: { userId: string }) {
-    if (!body.userId) {
-      return { success: false, error: 'userId is required' };
-    }
-
-    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+  @UseGuards(JwtAuthGuard)
+  async cancelSubscription(@CurrentUser() authUser: AuthUser, @Body() body: { userId?: string }) {
+    const user = await this.userRepository.findOne({ where: { id: authUser.id } });
     if (!user || !user.razorpaySubscriptionId) {
       return { success: false, error: 'No active subscription found' };
     }
@@ -488,7 +503,7 @@ export class RazorpayController {
       return { success: false, error: 'Failed to cancel subscription' };
     }
 
-    await this.userRepository.update(body.userId, {
+    await this.userRepository.update(authUser.id, {
       isPremium: false,
       plan: 'free',
       razorpaySubscriptionId: null,
@@ -498,7 +513,7 @@ export class RazorpayController {
     });
 
     await this.paymentRepository.save({
-      userId: body.userId,
+      userId: authUser.id,
       razorpaySubscriptionId: user.razorpaySubscriptionId,
       razorpayOrderId: '',
       planId: user.plan,
@@ -508,7 +523,7 @@ export class RazorpayController {
       status: 'subscription_cancelled',
     });
 
-    this.logger.log(`Subscription cancelled: user=${body.userId}`);
+    this.logger.log(`Subscription cancelled: user=${authUser.id}`);
     return { success: true };
   }
 
@@ -549,12 +564,9 @@ export class RazorpayController {
   // ── Trial endpoints ──
 
   @Post('start-trial')
-  async startTrial(@Body() body: { userId: string; planId?: string; trialDays?: number }) {
-    if (!body.userId) {
-      return { success: false, error: 'userId is required' };
-    }
-
-    const user = await this.userRepository.findOne({ where: { id: body.userId } });
+  @UseGuards(JwtAuthGuard)
+  async startTrial(@CurrentUser() authUser: AuthUser, @Body() body: { userId?: string; planId?: string; trialDays?: number }) {
+    const user = await this.userRepository.findOne({ where: { id: authUser.id } });
     if (!user) {
       return { success: false, error: 'User not found' };
     }
@@ -576,7 +588,7 @@ export class RazorpayController {
     const trialDays = body.trialDays || 6;
     const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
 
-    await this.userRepository.update(body.userId, {
+    await this.userRepository.update(authUser.id, {
       plan: planId,
       isPremium: true,
       trialEndsAt,
@@ -584,7 +596,7 @@ export class RazorpayController {
       isActive: true,
     });
 
-    this.logger.log(`Trial started: user=${body.userId} plan=${planId} days=${trialDays} until=${trialEndsAt.toISOString()}`);
+    this.logger.log(`Trial started: user=${authUser.id} plan=${planId} days=${trialDays} until=${trialEndsAt.toISOString()}`);
 
     return {
       success: true,

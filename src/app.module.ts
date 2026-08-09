@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { ReminderController } from './controllers/reminder.controller';
 import { AiController } from './controllers/ai.controller';
 import { WhatsappController } from './controllers/whatsapp.controller';
+import { AuthController } from './controllers/auth.controller';
+import { DashboardController } from './controllers/dashboard.controller';
 import { AppService } from './app.service';
 import { ReminderService } from './services/reminder.service';
 import { SchedulerService } from './services/scheduler.service';
@@ -45,6 +48,8 @@ import { FoodLog } from './entities/food-log.entity';
 import { Payment } from './entities/payment.entity';
 import { Coupon } from './entities/coupon.entity';
 import { CouponService } from './services/coupon.service';
+import { AuthService } from './services/auth.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -53,6 +58,14 @@ import { CouponService } from './services/coupon.service';
       envFilePath: '.env',
     }),
     ScheduleModule.forRoot(),
+    JwtModule.registerAsync({
+      global: true,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET') || 'ping-dev-secret-change-me',
+        signOptions: { expiresIn: '30d' },
+      }),
+    }),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: process.env.DB_HOST || 'localhost',
@@ -66,7 +79,7 @@ import { CouponService } from './services/coupon.service';
       synchronize: true,
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog, Payment, Coupon])  ],
-  controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController, RazorpayController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService, PlanGuardService, CouponService],
+  controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController, RazorpayController, AuthController, DashboardController],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService, PlanGuardService, CouponService, AuthService, JwtAuthGuard],
 })
 export class AppModule {}

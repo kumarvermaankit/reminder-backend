@@ -72,6 +72,14 @@ export class ReminderService {
     });
   }
 
+  async getCompletedRemindersForUser(userId: string, limit = 50) {
+    return await this.reminderRepository.find({
+      where: { userId, isCompleted: true },
+      order: { reminderDate: 'DESC' },
+      take: limit,
+    });
+  }
+
   async getAllSchedules() {
     return await this.scheduleRepository.find();
   }

@@ -76,7 +76,7 @@ export class DashboardController {
   @Post('reminders')
   async createReminder(
     @CurrentUser() auth: AuthUser,
-    @Body() body: { title: string; description?: string; reminderDate?: string },
+    @Body() body: { title: string; description?: string; reminderDate?: string; timezone?: string },
   ) {
     if (!body.title?.trim()) {
       return { success: false, error: 'Title is required' };
@@ -89,6 +89,15 @@ export class DashboardController {
       }
     } else {
       reminderDate = new Date(Date.now() + 60 * 60 * 1000);
+    }
+
+    if (body.timezone) {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: body.timezone });
+        await this.userRepository.update(auth.id, { timezone: body.timezone });
+      } catch {
+        this.logger.warn(`Invalid timezone from dashboard: ${body.timezone}`);
+      }
     }
 
     const reminder = await this.reminderService.createReminder({

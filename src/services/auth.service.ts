@@ -90,7 +90,7 @@ export class AuthService {
    *  `force` = user confirmed attaching an existing number to this account. */
   async updateProfile(
     userId: string,
-    data: { name?: string; phone?: string; country?: string },
+    data: { name?: string; phone?: string; country?: string; timezone?: string },
     force = false,
   ): Promise<Partial<User>> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -99,6 +99,14 @@ export class AuthService {
     const update: Partial<User> = {};
     if (data.name?.trim()) update.name = data.name.trim();
     if (data.country?.trim()) update.country = data.country.trim();
+    if (data.timezone) {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: data.timezone });
+        update.timezone = data.timezone;
+      } catch {
+        this.logger.warn(`Invalid timezone from profile: ${data.timezone}`);
+      }
+    }
     if (data.phone) {
       const normalized = data.phone.trim().replace(/[^0-9]/g, '');
       if (!normalized) throw new BadRequestException('Invalid WhatsApp number');

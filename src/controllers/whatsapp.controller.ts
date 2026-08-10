@@ -1626,6 +1626,40 @@ export class WhatsappController {
     return /\bevery\s+(\d+|minute|hour|day|week|morning|evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(msg);
   }
 
+  /** Extract a usable URL from the raw message, decoding LinkedIn safety redirects. */
+  private extractUrlFromMessage(message?: string): string | null {
+    if (!message) return null;
+    const match = message.match(/https?:\/\/[^\s]+/i);
+    if (!match) return null;
+    let url = match[0].replace(/[),.;]+$/, '');
+    // LinkedIn safety/go wrapper → unwrap to the real destination
+    const safetyMatch = url.match(/[?&]url=([^&]+)/i);
+    if (/linkedin\.com\/safety\/go/i.test(url) && safetyMatch) {
+      try {
+        const decoded = decodeURIComponent(safetyMatch[1]);
+        if (/^https?:\/\//i.test(decoded)) url = decoded;
+      } catch {
+        // keep the original URL if decoding fails
+      }
+    }
+    return url;
+  }
+
+  private isGenericTitle(title: string): boolean {
+    const t = (title || '').trim().toLowerCase();
+    return !t ||
+      ['this', 'that', 'it', 'this link', 'the link', 'the url', 'remind me', 'reminder', 'open this', 'this page'].includes(t) ||
+      /^(remind me|set a reminder|reminder|about this|this job|this page|open)\s*$/i.test(t);
+  }
+
+  private urlDomain(url: string): string {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      return 'link';
+    }
+  }
+
   private async handleCreateReminderOrFallback(
     parsed: any,
     user: any,
@@ -1699,10 +1733,22 @@ export class WhatsappController {
         }
 
         // Create a standalone reminder — do NOT auto-link to old todo items
+        const url = this.extractUrlFromMessage(message);
+        let title = parsed.title || '';
+        if (url && this.isGenericTitle(title)) {
+          title = `Open link (${this.urlDomain(url)})`;
+        }
+        const descriptionParts: string[] = [];
+        if (parsed.description && parsed.description !== parsed.title) {
+          descriptionParts.push(parsed.description);
+        }
+        if (url) {
+          descriptionParts.push(`🔗 ${url}`);
+        }
         const created = await this.reminderService.createReminder({
           userId: user.id,
-          title: parsed.title,
-          description: parsed.description || parsed.title || '',
+          title,
+          description: descriptionParts.join('\n') || title || '',
           reminderDate,
           msgTimestamp,
           isCompleted: false,
@@ -1715,7 +1761,8 @@ export class WhatsappController {
             category: parsed.category,
             priority: parsed.priority,
             recurring: parsed.recurring,
-            source: 'whatsapp'
+            source: 'whatsapp',
+            url: url || undefined,
           }
         });
 

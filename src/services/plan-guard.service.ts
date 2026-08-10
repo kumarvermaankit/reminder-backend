@@ -116,8 +116,12 @@ export class PlanGuardService {
 
   hasActiveAccess(user: User): boolean {
     const now = new Date();
+    // NULL planExpiresAt on a premium plan = manual admin override (never expires)
+    const planActive = user.planExpiresAt != null
+      ? user.planExpiresAt > now
+      : !!(user.plan && user.plan !== 'free');
     return !!(
-      (user.planExpiresAt && user.planExpiresAt > now) ||
+      planActive ||
       (user.trialEndsAt && user.trialEndsAt > now) ||
       (user.couponExpiresAt && user.couponExpiresAt > now)
     );

@@ -230,8 +230,13 @@ describe('PlanGuardService', () => {
       expect(service.hasActiveAccess(user)).toBe(true);
     });
 
+    it('returns true when plan is premium and planExpiresAt is null (manual admin override)', () => {
+      const user = { plan: 'manager', planExpiresAt: null, trialEndsAt: null, couponExpiresAt: null } as User;
+      expect(service.hasActiveAccess(user)).toBe(true);
+    });
+
     it('returns false when nothing is active', () => {
-      const user = { planExpiresAt: null, trialEndsAt: null, couponExpiresAt: null } as User;
+      const user = { plan: 'free', planExpiresAt: null, trialEndsAt: null, couponExpiresAt: null } as User;
       expect(service.hasActiveAccess(user)).toBe(false);
     });
   });

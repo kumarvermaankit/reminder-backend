@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Reminder } from '../entities/reminder.entity';
 import { ReminderSchedule } from '../entities/reminder-schedule.entity';
+import { User } from '../entities/user.entity';
+
+export const FREE_MONTHLY_REMINDER_LIMIT = 20;
 
 @Injectable()
 export class ReminderService {
@@ -11,9 +14,12 @@ export class ReminderService {
     private reminderRepository: Repository<Reminder>,
     @InjectRepository(ReminderSchedule)
     private scheduleRepository: Repository<ReminderSchedule>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   async createReminder(reminderData: Partial<Reminder>) {
+    await this.consumeFreeReminderQuota(reminderData.userId);
     const reminder = this.reminderRepository.create(reminderData);
     const savedReminder = await this.reminderRepository.save(reminder);
     
@@ -27,6 +33,29 @@ export class ReminderService {
     }
     
     return savedReminder;
+  }
+
+  private async consumeFreeReminderQuota(userId?: string): Promise<void> {
+    if (!userId) return;
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user || user.plan !== 'free') return;
+
+    const quotaMonth = new Date().toISOString().slice(0, 7);
+    const currentCount = user.reminderQuotaMonth === quotaMonth
+      ? user.reminderQuotaCount
+      : 0;
+
+    if (currentCount >= FREE_MONTHLY_REMINDER_LIMIT) {
+      throw new ForbiddenException(
+        `You've reached the Free plan limit of ${FREE_MONTHLY_REMINDER_LIMIT} reminders this month. Upgrade to Helper for unlimited reminders.`,
+      );
+    }
+
+    await this.userRepository.update(userId, {
+      reminderQuotaMonth: quotaMonth,
+      reminderQuotaCount: currentCount + 1,
+    });
   }
 
   async getReminders() {

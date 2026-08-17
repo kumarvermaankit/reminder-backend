@@ -91,6 +91,7 @@ export class NotificationService {
                 ? [{ id: `done:${schedule.id}`, title: 'Done ✅' }]
                 : [
                     { id: `done:${schedule.id}`, title: 'Done ✅' },
+                    { id: `again:${schedule.id}`, title: 'Remind again ⏰' },
                   ];
               const allButtons = buttons.length < 3
                 ? [...buttons, { id: 'menu_btn', title: '📋 Menu' }]
@@ -291,72 +292,6 @@ _${match.status}_`;
       this.logger.log(`Trial-end notice sent to user ${user.id}`);
     } catch (error) {
       this.logger.error(`Failed to send trial-end notice to user ${user.id}:`, error);
-    }
-  }
-
-  async sendDailyPrompt(user: User): Promise<boolean> {    try {
-      const localToday = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
-      const greeting = (!user.name || user.name === 'there') ? 'there' : user.name;
-
-      const todayTitle = new Date().toLocaleDateString('en-US', {
-        timeZone: user.timezone, month: 'long', day: 'numeric',
-      }) + ' Daily List';
-
-      const existing = await this.todoListService.findListByTitle(user.id, todayTitle);
-      const itemCount = existing?.items?.filter(i => !i.isCompleted)?.length || 0;
-
-      let message: string;
-      const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
-      const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
-      const outsideWindow = hoursSinceLastMsg > 24;
-
-      if (itemCount > 0) {
-        message = [
-          `☀️ Good morning, ${greeting}!`,
-          '',
-          `You have ${itemCount} item${itemCount > 1 ? 's' : ''} on your *${todayTitle}* list.`,
-          '',
-          `Tell me what you need to do today and I'll add it to your list with reminders if you'd like.`,
-          '',
-          `Example: "add review PR to ${todayTitle} list remind me at 3pm"`,
-        ].join('\n');
-        if (outsideWindow) {
-          const bodyComponents = [{
-            type: 'body',
-            parameters: [{ type: 'text', text: message }],
-          }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-          // Don't update lastMessageTime — only user's reply opens the window
-        } else {
-          await this.whatsappService.sendWithMenu(user.phone, message);
-        }
-      } else {
-        message = [
-          `☀️ Good morning, ${greeting}!`,
-          '',
-          `Tap the button below to create your *${todayTitle}* list for today!`,
-        ].join('\n');
-        if (outsideWindow) {
-          const bodyComponents = [{
-            type: 'body',
-            parameters: [{ type: 'text', text: message }],
-          }];
-          await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-          // Don't update lastMessageTime — only user's reply opens the window
-        } else {
-          await this.whatsappService.sendInteractiveMessage(user.phone, message, [
-            { id: 'daily_list_create', title: '📋 Create Daily List' },
-            { id: 'menu_btn', title: '📋 Menu' },
-          ]);
-        }
-      }
-
-      await this.userService.updateUser(user.id, { lastDailyPromptDate: localToday });
-      this.logger.log(`Daily prompt sent to user ${user.id}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to send daily prompt to user ${user.id}:`, error);
-      return false;
     }
   }
 

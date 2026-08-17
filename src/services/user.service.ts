@@ -82,48 +82,6 @@ export class UserService {
     }
   }
 
-  // Get user's local time
-  getUserLocalTime(user: User): Date {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: user.timezone,
-      hour: 'numeric', minute: 'numeric', second: 'numeric',
-      hour12: false,
-    }).formatToParts(now);
-    const getVal = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
-    const h = getVal('hour'), m = getVal('minute'), s = getVal('second');
-    return new Date(1970, 0, 1, h, m, s);
-  }
-
-  // Get today's local date (YYYY-MM-DD) for a user
-  getUserLocalDate(user: User): string {
-    return new Date().toLocaleDateString('en-CA', { timeZone: user.timezone });
-  }
-
-  // Find active users who are due for their daily prompt
-  async getUsersDueForDailyPrompt(): Promise<User[]> {
-    const users = await this.userRepository.find({ where: { isActive: true } });
-    const due: User[] = [];
-    for (const u of users) {
-      try {
-        const localToday = this.getUserLocalDate(u);
-        // Already prompted today
-        if (u.lastDailyPromptDate === localToday) continue;
-
-        // Check if prompt time has passed in user's local time
-        const localNow = this.getUserLocalTime(u);
-        const [pHours, pMins] = (u.dailyPromptTime || '07:00').split(':').map(Number);
-        const promptMin = pHours * 60 + pMins;
-        const nowMin = localNow.getHours() * 60 + localNow.getMinutes();
-
-        if (nowMin >= promptMin) due.push(u);
-      } catch (error) {
-        this.logger.warn(`Skipping daily prompt check for user ${u.id} (${u.timezone}): ${error.message}`);
-      }
-    }
-    return due;
-  }
-
   // Infer timezone from message timestamp + greeting
   inferTimezone(msgTimestamp: Date, message: string): string | null {
     const lower = message.toLowerCase();

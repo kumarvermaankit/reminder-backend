@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Query, Res, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Res, Logger, ForbiddenException } from '@nestjs/common';
 import { Response } from 'express';
 import { WhatsappService } from '../services/whatsapp.service';
 import { AiService } from '../services/ai.service';
@@ -273,6 +273,10 @@ export class WhatsappController {
         await this.reminderService.markAsCompleted(reminder.id);
         await this.reminderService.deleteReminder(reminder.id);
         await this.reminderService.deleteAllSchedulesForReminder(reminder.id);
+      } else if (action === 'again') {
+        const remindAgainAt = new Date(Date.now() + 10 * 60 * 1000);
+        await this.reminderService.createSchedule(reminder.id, remindAgainAt);
+        botResponse = '⏰ Okay — I\'ll remind you again in 10 minutes.';
       } else {
         botResponse = "Got it!";
       }
@@ -805,9 +809,6 @@ export class WhatsappController {
           break;
         case 'get_password':
           botResponse = await this.handleGetPassword(parsed, user);
-          break;
-        case 'update_settings':
-          botResponse = await this.handleUpdateSettings(parsed, user);
           break;
         case 'system_query':
           botResponse = await this.handleSystemQuery(message);
@@ -1344,18 +1345,6 @@ export class WhatsappController {
     return "Which service's password would you like to retrieve?";
   }
 
-  private async handleUpdateSettings(parsed: any, user: any): Promise<string> {
-    if (parsed.dailyPromptTime) {
-      const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
-      if (timePattern.test(parsed.dailyPromptTime)) {
-        await this.userService.updateUser(user.id, { dailyPromptTime: parsed.dailyPromptTime });
-        return `✅ Your daily prompt time has been set to ${parsed.dailyPromptTime}. I'll check in with you each day then!`;
-      }
-      return `I couldn't understand that time. Please use HH:mm format, like 09:00 or 14:30.`;
-    }
-    return `Your daily prompt is currently set to ${user.dailyPromptTime || '09:00'}. Say "set daily prompt to 8am" to change it.`;
-  }
-
   private async handleCheckStock(parsed: any): Promise<string> {
     const query = parsed.stockSymbol || parsed.title || '';
     if (!query) return "Which stock would you like to check? (e.g. 'price of Reliance' or 'check Tata Motors')";
@@ -1618,12 +1607,11 @@ export class WhatsappController {
     );
   }
 
-  /** "in 10 minutes" = one-shot delay; "every 10 minutes" = recurring. */
-  private isExplicitRecurringReminder(message: string | undefined, parsed: any): boolean {
-    if (parsed?.isRecurring === true) return true;
-    if (parsed?.recurring) return true;
+  /** "in 10 minutes" = one-shot delay; recurrence requires explicit user wording. */
+  private isExplicitRecurringReminder(message: string | undefined): boolean {
     const msg = (message || '').toLowerCase();
-    return /\bevery\s+(\d+|minute|hour|day|week|morning|evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(msg);
+    return /\b(?:every|each)\s+(?:(?:\d+)\s+)?(?:minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years|morning|evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(msg)
+      || /\b(?:daily|weekly|monthly|yearly|weekdays|weekends)\b/i.test(msg);
   }
 
   /** Extract a usable URL from the raw message, decoding LinkedIn safety redirects. */
@@ -1678,7 +1666,7 @@ export class WhatsappController {
         const diffMs = reminderDate.getTime() - nowRef.getTime();
         this.logger.log(`Reminder scheduled for ${reminderDate.toISOString()} (${Math.round(diffMs / 60000)} min from msgTimestamp)`);
 
-        const isPersistent = this.isExplicitRecurringReminder(message, parsed);
+        const isPersistent = this.isExplicitRecurringReminder(message);
         const reminderInterval = isPersistent ? (parsed.intervalMinutes || 0) : 0;
 
         // Check if user wants reminders for items in a list
@@ -1774,6 +1762,9 @@ export class WhatsappController {
         return `✅ Reminder set! I'll remind you to "${created.title}" ${timeStr}${repeatInfo}.`;
       } catch (e) {
         this.logger.error('Failed to save reminder:', e);
+        if (e instanceof ForbiddenException) {
+          return e.message;
+        }
         return "I understood your reminder but had trouble saving it. Please try again!";
       }
     }

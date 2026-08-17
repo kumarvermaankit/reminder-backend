@@ -7,7 +7,6 @@ export type Feature =
   | 'reminders'
   | 'notes'
   | 'passwords'
-  | 'daily_prompt'
   | 'todo_lists'
   | 'todo_item_reminders'
   | 'calorie_tracker'
@@ -20,15 +19,15 @@ export type Feature =
   | 'priority_support';
 
 const PLAN_FEATURES: Record<PlanType, Feature[]> = {
-  free: ['reminders', 'notes', 'daily_prompt'],
-  helper: ['reminders', 'notes', 'passwords', 'daily_prompt'],
+  free: ['reminders'],
+  helper: ['reminders', 'notes', 'passwords'],
   assistant: [
-    'reminders', 'notes', 'passwords', 'daily_prompt',
+    'reminders', 'notes', 'passwords',
     'todo_lists', 'todo_item_reminders', 'calorie_tracker',
     'stock_queries', 'cricket_queries',
   ],
   manager: [
-    'reminders', 'notes', 'passwords', 'daily_prompt',
+    'reminders', 'notes', 'passwords',
     'todo_lists', 'todo_item_reminders', 'calorie_tracker',
     'stock_queries', 'cricket_queries',
     'google_calendar', 'google_meet', 'google_docs', 'google_sheets',

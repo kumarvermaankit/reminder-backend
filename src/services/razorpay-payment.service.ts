@@ -32,7 +32,6 @@ export class RazorpayPaymentService {
         'Recurring reminders',
         'Personal notes vault',
         'Password manager',
-        'Daily morning prompt',
       ],
       pricing_monthly: { USD: 99, INR: 6900, GBP: 79, EUR: 89 },
       pricing_yearly: { USD: 999, INR: 69900, GBP: 799, EUR: 899 },

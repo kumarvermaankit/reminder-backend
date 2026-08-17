@@ -63,6 +63,14 @@ export class User {
   @Column({ name: 'plan', type: 'varchar', length: 20, default: 'free' })
   plan: PlanType;
 
+  // Tracks reminder creations on the free plan. Stored on the user so deleting
+  // or completing a reminder does not make quota available again.
+  @Column({ name: 'reminder_quota_month', length: 7, nullable: true })
+  reminderQuotaMonth: string;
+
+  @Column({ name: 'reminder_quota_count', default: 0 })
+  reminderQuotaCount: number;
+
   @Column({ name: 'razorpay_customer_id', nullable: true })
   razorpayCustomerId: string;
 

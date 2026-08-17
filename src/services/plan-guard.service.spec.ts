@@ -27,10 +27,10 @@ describe('PlanGuardService', () => {
   });
 
   describe('hasFeature', () => {
-    it('free plan has reminders and notes', () => {
+    it('free plan has reminders but not notes', () => {
       const user = { plan: 'free' } as User;
       expect(service.hasFeature(user, 'reminders')).toBe(true);
-      expect(service.hasFeature(user, 'notes')).toBe(true);
+      expect(service.hasFeature(user, 'notes')).toBe(false);
     });
 
     it('free plan does not have passwords', () => {

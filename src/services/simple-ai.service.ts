@@ -151,10 +151,25 @@ export class SimpleAiService {
     const prefix = `AI_${name.toUpperCase()}_MODEL`;
     const env = this.configService.get<string>(prefix);
     if (env) {
+      if (this.isDeprecatedModel(env)) {
+        this.logger.warn(
+          `${prefix}=${env} is deprecated/removed; using default ${DEFAULT_MODELS[name].parsing} instead`,
+        );
+        return DEFAULT_MODELS[name];
+      }
       this.logger.log(`${prefix}=${env}`);
       return { parsing: env, response: env, completion: env };
     }
     return DEFAULT_MODELS[name];
+  }
+
+  private isDeprecatedModel(model: string): boolean {
+    const m = model.toLowerCase().trim();
+    return [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'gemini-1.5-flash',
+    ].includes(m);
   }
 
   private async selectProvider(): Promise<AIProvider | null> {

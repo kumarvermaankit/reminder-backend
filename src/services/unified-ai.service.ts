@@ -43,7 +43,7 @@ export class UnifiedAiService {
         currentUsage: { daily: 0, monthly: 0, lastReset: { daily: new Date(), monthly: new Date() } },
         priority: 1,
         costPerRequest: 0.000,
-        model: 'llama-3.3-70b-versatile'
+        model: 'openai/gpt-oss-20b'
       });
     }
 

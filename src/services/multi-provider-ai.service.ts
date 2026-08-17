@@ -60,9 +60,9 @@ export class MultiProviderAiService {
         costPerRequest: 0.000,
         speed: 200,
         models: {
-          parsing: 'llama-3.3-70b-versatile',
-          response: 'llama-3.3-70b-versatile',
-          completion: 'llama-3.3-70b-versatile'
+          parsing: 'openai/gpt-oss-20b',
+          response: 'openai/gpt-oss-20b',
+          completion: 'openai/gpt-oss-20b'
         }
       });
     }

@@ -60,9 +60,9 @@ export class MultiProviderAiService {
         costPerRequest: 0.000,
         speed: 200,
         models: {
-          parsing: 'openai/gpt-oss-20b',
-          response: 'openai/gpt-oss-20b',
-          completion: 'openai/gpt-oss-20b'
+          parsing: 'groq/compound-mini',
+          response: 'groq/compound-mini',
+          completion: 'groq/compound-mini'
         }
       });
     }

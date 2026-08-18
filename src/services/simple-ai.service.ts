@@ -43,7 +43,7 @@ const DEFAULT_PRIORITY: Record<ProviderName, number> = {
 };
 
 const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; completion: string }> = {
-  groq: { parsing: 'openai/gpt-oss-20b', response: 'openai/gpt-oss-20b', completion: 'openai/gpt-oss-20b' },
+  groq: { parsing: 'groq/compound-mini', response: 'groq/compound-mini', completion: 'groq/compound-mini' },
   together: { parsing: 'meta-llama/Llama-3-8b-chat-hf', response: 'meta-llama/Llama-3-8b-chat-hf', completion: 'meta-llama/Llama-3-8b-chat-hf' },
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
@@ -169,6 +169,9 @@ export class SimpleAiService {
       'llama-3.3-70b-versatile',
       'llama-3.1-8b-instant',
       'gemini-1.5-flash',
+      'openai/gpt-oss-20b',
+      'openai/gpt-oss-120b',
+      'qwen/qwen3.6-27b',
     ].includes(m);
   }
 

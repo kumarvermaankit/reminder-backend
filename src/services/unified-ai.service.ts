@@ -43,7 +43,7 @@ export class UnifiedAiService {
         currentUsage: { daily: 0, monthly: 0, lastReset: { daily: new Date(), monthly: new Date() } },
         priority: 1,
         costPerRequest: 0.000,
-        model: 'openai/gpt-oss-20b'
+        model: 'groq/compound-mini'
       });
     }
 

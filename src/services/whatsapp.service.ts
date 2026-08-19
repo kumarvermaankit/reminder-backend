@@ -341,4 +341,77 @@ export class WhatsappService {
       return false;
     }
   }
+
+  /** Download a WhatsApp media file (audio, image, ...) by its media ID. */
+  async downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    try {
+      if (!this.accessToken) {
+        this.logger.warn('WhatsApp credentials not configured, cannot download media');
+        return null;
+      }
+      const info = await axios.get(`${this.baseUrl}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        timeout: 15000,
+      });
+      const res = await axios.get(info.data.url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        responseType: 'arraybuffer',
+        timeout: 30000,
+      });
+      return {
+        buffer: Buffer.from(res.data),
+        mimeType: info.data.mime_type || 'application/octet-stream',
+      };
+    } catch (e) {
+      this.logger.error('downloadMedia failed:', e.response?.data || e.message);
+      return null;
+    }
+  }
+
+  /** Re-upload a media file so it gets a fresh, persistent media ID (original URLs expire). */
+  async uploadMedia(buffer: Buffer, mimeType: string): Promise<string | null> {
+    try {
+      const ext = mimeType.split('/')[1] || 'bin';
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('type', mimeType);
+      form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), `media.${ext}`);
+      const res = await axios.post(`${this.baseUrl}/${this.phoneNumberId}/media`, form, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        timeout: 30000,
+      });
+      return res.data?.id || null;
+    } catch (e) {
+      this.logger.error('uploadMedia failed:', e.response?.data || e.message);
+      return null;
+    }
+  }
+
+  /** Send an image message with a text caption. */
+  async sendImageMessage(to: string, mediaId: string, caption: string): Promise<boolean> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/${this.phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'image',
+          image: { id: mediaId, caption },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        },
+      );
+      this.logger.log(`WhatsApp image message sent to ${to}: ${response.data.messages?.[0]?.id}`);
+      return true;
+    } catch (e) {
+      this.logger.error('sendImageMessage failed:', e.response?.data || e.message);
+      return false;
+    }
+  }
 }

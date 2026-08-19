@@ -120,10 +120,126 @@ export class WhatsappController {
         const text = message.text.body;
         this.logger.log(`Text message: from=${from} text="${text}"`);
         await this.processWhatsAppMessage(from, text, phoneNumber, replyToMsgId, msgTimestamp, msgId);
+      } else if (message.type === 'audio') {
+        this.logger.log(`Audio message: from=${from} mediaId=${message.audio?.id}`);
+        await this.handleVoiceMessage(from, message.audio, phoneNumber, replyToMsgId, msgTimestamp, msgId);
+      } else if (message.type === 'image') {
+        this.logger.log(`Image message: from=${from} mediaId=${message.image?.id} caption="${(message.image?.caption || '').slice(0, 100)}"`);
+        await this.handleImageMessage(from, message.image, phoneNumber, replyToMsgId, msgTimestamp, msgId);
       } else {
         this.logger.log(`Unhandled message type: ${message.type} from=${from}`);
       }
     }
+  }
+
+  private async handleVoiceMessage(
+    userPhone: string,
+    audio: { id?: string; mime_type?: string },
+    businessPhone: string,
+    replyToMsgId: string | null,
+    msgTimestamp: Date,
+    incomingMessageId?: string,
+  ) {
+    try {
+      if (incomingMessageId) {
+        await this.whatsappService.sendTypingIndicator(incomingMessageId);
+      }
+      if (!audio?.id) {
+        await this.whatsappService.sendMessage(userPhone, "Sorry, I couldn't find the audio in that voice note. Please try again!");
+        return;
+      }
+      this.logger.log(`Downloading voice note ${audio.id} from ${userPhone}`);
+      const media = await this.whatsappService.downloadMedia(audio.id);
+      if (!media) {
+        await this.whatsappService.sendMessage(userPhone, "Sorry, I couldn't download your voice note. Please try again!");
+        return;
+      }
+      const transcript = await this.aiService.transcribeAudio(media.buffer, media.mimeType);
+      if (!transcript) {
+        await this.whatsappService.sendMessage(userPhone, "Sorry, I couldn't understand your voice note. Please try again or type your message!");
+        return;
+      }
+      this.logger.log(`Voice transcript from ${userPhone}: "${transcript}"`);
+      await this.processWhatsAppMessage(userPhone, transcript, businessPhone, replyToMsgId, msgTimestamp, incomingMessageId);
+    } catch (error) {
+      this.logger.error('Error handling voice message:', error);
+    }
+  }
+
+  private async handleImageMessage(
+    userPhone: string,
+    image: { id?: string; mime_type?: string; caption?: string },
+    businessPhone: string,
+    replyToMsgId: string | null,
+    msgTimestamp: Date,
+    incomingMessageId?: string,
+  ) {
+    try {
+      if (incomingMessageId) {
+        await this.whatsappService.sendTypingIndicator(incomingMessageId);
+      }
+      if (!image?.id) {
+        await this.whatsappService.sendMessage(userPhone, "Sorry, I couldn't read that image. Please try again!");
+        return;
+      }
+      this.logger.log(`Downloading image ${image.id} from ${userPhone}`);
+      const media = await this.whatsappService.downloadMedia(image.id);
+      if (!media) {
+        await this.whatsappService.sendMessage(userPhone, "Sorry, I couldn't download your image. Please try again!");
+        return;
+      }
+      const persistentId = await this.whatsappService.uploadMedia(media.buffer, media.mimeType);
+      const mediaMeta = { id: persistentId || image.id, mimeType: media.mimeType };
+
+      const caption = (image.caption || '').trim();
+      if (caption) {
+        // Caption = instructions → parse it; the image is attached to the resulting reminder
+        this.logger.log(`Image with caption from ${userPhone}: "${caption}"`);
+        await this.processWhatsAppMessage(userPhone, caption, businessPhone, replyToMsgId, msgTimestamp, incomingMessageId, mediaMeta);
+      } else {
+        // No caption → auto-create an image reminder (default +10 minutes)
+        const title = `📎 ${this.titleForImage(media.mimeType)}`;
+        const botResponse = await this.createImageReminder(userPhone, title, msgTimestamp, mediaMeta);
+        await this.whatsappService.sendMessage(userPhone, botResponse);
+      }
+    } catch (error) {
+      this.logger.error('Error handling image message:', error);
+    }
+  }
+
+  private titleForImage(mimeType: string): string {
+    if (mimeType.includes('pdf')) return 'Document';
+    return 'Image reminder';
+  }
+
+  private async createImageReminder(
+    userPhone: string,
+    title: string,
+    msgTimestamp: Date,
+    media: { id: string; mimeType: string },
+  ): Promise<string> {
+    let user = await this.userService.getUserByPhone(userPhone);
+    if (!user) {
+      user = await this.userService.createUser({
+        phone: userPhone,
+        name: 'there',
+        email: `user_${userPhone}@reminder.app`,
+        preferredContactMethod: 'whatsapp',
+        timezone: 'UTC',
+        isActive: true,
+      });
+    }
+    await this.reminderService.createReminder({
+      userId: user.id,
+      title,
+      description: '📎 Photo attached',
+      reminderDate: new Date(msgTimestamp.getTime() + 10 * 60 * 1000),
+      msgTimestamp,
+      isCompleted: false,
+      isPersistent: false,
+      metadata: { source: 'whatsapp', media },
+    });
+    return "✅ Saved your image! I'll remind you about it in 10 minutes — or just text me a time like \"remind me tomorrow 5pm\".";
   }
 
   private async handleListReply(
@@ -295,6 +411,7 @@ export class WhatsappController {
     replyToMsgId?: string,
     msgTimestamp?: Date,
     incomingMessageId?: string,
+    media?: { id: string; mimeType: string },
   ) {
     try {
       this.logger.log(`Processing message from ${userPhone}: "${message}"`);
@@ -871,7 +988,7 @@ export class WhatsappController {
           }
           break;
         default:
-          botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp, message);
+          botResponse = await this.handleCreateReminderOrFallback(parsed, user, msgTimestamp, message, media);
       }
 
       const withCompactTips =
@@ -1653,6 +1770,7 @@ export class WhatsappController {
     user: any,
     msgTimestamp?: Date,
     message?: string,
+    media?: { id: string; mimeType: string },
   ): Promise<string> {
     if (parsed.actionType === 'create_reminder' && parsed.confidence > 0.7 && !parsed.needsClarification) {
       this.logger.log(`Creating reminder...`);
@@ -1751,6 +1869,7 @@ export class WhatsappController {
             recurring: parsed.recurring,
             source: 'whatsapp',
             url: url || undefined,
+            media: media || undefined,
           }
         });
 

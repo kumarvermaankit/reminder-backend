@@ -180,6 +180,27 @@ export class SimpleAiService {
     return this.providers.length > 0 ? this.providers[0] : null;
   }
 
+  async transcribeAudio(buffer: Buffer, mimeType: string): Promise<string | null> {
+    const groqKey = this.configService.get<string>('GROQ_API_KEY');
+    if (!groqKey) {
+      this.logger.error('GROQ_API_KEY not set — cannot transcribe voice notes');
+      return null;
+    }
+    const model = this.configService.get<string>('AI_TRANSCRIPTION_MODEL') || 'whisper-large-v3-turbo';
+    try {
+      const ext = mimeType.includes('mp3') ? 'mp3' : 'ogg';
+      const client = new Groq({ apiKey: groqKey });
+      const res = await client.audio.transcriptions.create({
+        model,
+        file: new File([new Uint8Array(buffer)], `voice.${ext}`, { type: mimeType }),
+      });
+      return res.text?.trim() || null;
+    } catch (e) {
+      this.logger.error('Groq transcription failed:', e);
+      return null;
+    }
+  }
+
   async parseReminderInput(
     userInput: string,
     userId?: string,

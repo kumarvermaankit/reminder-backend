@@ -78,6 +78,16 @@ export class NotificationService {
             const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
             const outsideWindow = hoursSinceLastMsg > 24;
 
+            // Reminder with an attached image → send the photo + text together
+            const media = reminder.metadata?.media as { id?: string; mimeType?: string } | undefined;
+            if (media?.id && !outsideWindow) {
+              sent = await this.whatsappService.sendImageMessage(user.phone, media.id, message);
+              if (sent) {
+                await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+              }
+            }
+
+            if (!sent) {
             if (outsideWindow) {
               // Send via template (works outside 24h window)
               const bodyComponents = [{
@@ -101,6 +111,7 @@ export class NotificationService {
               if (sent) {
                 await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
               }
+            }
             }
           }
           break;

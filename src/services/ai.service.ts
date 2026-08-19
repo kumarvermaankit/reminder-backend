@@ -19,6 +19,10 @@ export class AiService {
     return await this.simpleAiService.parseReminderInput(userInput, userId, conversation, pendingReminders, msgTimestamp, timezone);
   }
 
+  async transcribeAudio(buffer: Buffer, mimeType: string): Promise<string | null> {
+    return await this.simpleAiService.transcribeAudio(buffer, mimeType);
+  }
+
   async generateBasicResponse(userInput: string, reminder?: ParsedReminder): Promise<string> {
     return await this.simpleAiService.generateBasicResponse(userInput, reminder);
   }

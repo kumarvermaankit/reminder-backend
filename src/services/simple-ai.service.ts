@@ -47,7 +47,7 @@ const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; 
   together: { parsing: 'meta-llama/Llama-3-8b-chat-hf', response: 'meta-llama/Llama-3-8b-chat-hf', completion: 'meta-llama/Llama-3-8b-chat-hf' },
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
-  gemini: { parsing: 'gemini-2.0-flash', response: 'gemini-2.0-flash', completion: 'gemini-2.0-flash' },
+  gemini: { parsing: 'gemini-3.6-flash', response: 'gemini-3.6-flash', completion: 'gemini-3.6-flash' },
 };
 
 @Injectable()
@@ -169,6 +169,7 @@ export class SimpleAiService {
       'llama-3.3-70b-versatile',
       'llama-3.1-8b-instant',
       'gemini-1.5-flash',
+      'gemini-2.0-flash',
       'openai/gpt-oss-20b',
       'openai/gpt-oss-120b',
       'qwen/qwen3.6-27b',

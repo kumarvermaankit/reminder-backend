@@ -265,4 +265,26 @@ describe('PlanGuardService', () => {
       expect(result.coupon).toBe(3);
     });
   });
+
+  describe('getMaxInactiveWarnings', () => {
+    it('free plan gets 1 warning before stop', () => {
+      expect(service.getMaxInactiveWarnings('free')).toBe(1);
+    });
+
+    it('helper plan gets 1 warning before stop', () => {
+      expect(service.getMaxInactiveWarnings('helper')).toBe(1);
+    });
+
+    it('assistant plan gets 2 warnings before stop', () => {
+      expect(service.getMaxInactiveWarnings('assistant')).toBe(2);
+    });
+
+    it('manager plan gets 3 warnings before stop', () => {
+      expect(service.getMaxInactiveWarnings('manager')).toBe(3);
+    });
+
+    it('defaults to 1 for unknown plan', () => {
+      expect(service.getMaxInactiveWarnings('unknown' as any)).toBe(1);
+    });
+  });
 });

@@ -33,8 +33,8 @@ export class RazorpayPaymentService {
         'Personal notes vault',
         'Password manager',
       ],
-      pricing_monthly: { USD: 99, INR: 6900, GBP: 79, EUR: 89 },
-      pricing_yearly: { USD: 999, INR: 69900, GBP: 799, EUR: 899 },
+      pricing_monthly: { USD: 400, INR: 6900, GBP: 79, EUR: 89 },
+      pricing_yearly: { USD: 4000, INR: 69900, GBP: 799, EUR: 899 },
     },
     {
       id: 'assistant',
@@ -47,8 +47,8 @@ export class RazorpayPaymentService {
         'Calorie & diet tracker',
         'Live stock & cricket queries',
       ],
-      pricing_monthly: { USD: 129, INR: 8900, GBP: 99, EUR: 119 },
-      pricing_yearly: { USD: 1299, INR: 89900, GBP: 999, EUR: 1199 },
+      pricing_monthly: { USD: 600, INR: 8900, GBP: 99, EUR: 119 },
+      pricing_yearly: { USD: 6000, INR: 89900, GBP: 999, EUR: 1199 },
     },
     {
       id: 'manager',
@@ -61,8 +61,8 @@ export class RazorpayPaymentService {
         'Google Sheets integration',
         'Priority 24/7 support',
       ],
-      pricing_monthly: { USD: 199, INR: 10900, GBP: 149, EUR: 179 },
-      pricing_yearly: { USD: 1999, INR: 109900, GBP: 1499, EUR: 1799 },
+      pricing_monthly: { USD: 800, INR: 10900, GBP: 149, EUR: 179 },
+      pricing_yearly: { USD: 8000, INR: 109900, GBP: 1499, EUR: 1799 },
     },
   ];
 
@@ -135,12 +135,14 @@ export class RazorpayPaymentService {
     description: string,
     planId: PlanType = 'helper',
     interval: 'monthly' | 'yearly' = 'monthly',
+    countryCode: string = 'IN',
   ): Promise<string | null> {
     if (!this.razorpay) return null;
+    const currency = this.getCurrencyForCountry(countryCode);
     try {
       const link = await this.razorpay.paymentLink.create({
         amount: Math.round(amount * 100),
-        currency: 'INR',
+        currency,
         description,
         customer: { contact: '', email: '' },
         notify: { sms: false, email: false },
@@ -185,7 +187,7 @@ export class RazorpayPaymentService {
     return `plan_${planId}_${interval}`;
   }
 
-  async createOrGetRazorpayPlan(planId: string, interval: 'monthly' | 'yearly'): Promise<any> {
+  async createOrGetRazorpayPlan(planId: string, interval: 'monthly' | 'yearly', countryCode: string = 'IN'): Promise<any> {
     if (!this.razorpay) return null;
     const plan = this.plans.find((p) => p.id === planId);
     if (!plan) return null;
@@ -204,7 +206,7 @@ export class RazorpayPaymentService {
       this.logger.warn(`Razorpay plan lookup failed (proceeding to create): ${lookupErr.message}`);
     }
 
-    const currency = 'INR';
+    const currency = this.getCurrencyForCountry(countryCode);
     const amount = interval === 'yearly'
       ? (plan.pricing_yearly[currency] || plan.pricing_yearly['USD'])
       : (plan.pricing_monthly[currency] || plan.pricing_monthly['USD']);
@@ -246,7 +248,7 @@ export class RazorpayPaymentService {
     if (!plan) return null;
     const currency = this.getCurrencyForCountry(countryCode);
 
-    const razorpayPlan = await this.createOrGetRazorpayPlan(planId, interval);
+    const razorpayPlan = await this.createOrGetRazorpayPlan(planId, interval, countryCode);
     if (!razorpayPlan) return null;
 
     const totalCount = interval === 'yearly' ? 12 : 24;

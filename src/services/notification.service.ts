@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+// import { Cron, CronExpression } from '@nestjs/schedule'; // Re-enable when inactivity ping is turned back on
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { WhatsappService } from './whatsapp.service';
 import { UserService } from './user.service';
 import { TodoListService } from './todo-list.service';
@@ -329,59 +329,32 @@ _${match.status}_`;
     // For now, it's a placeholder
   }
 
-  // ── Inactivity ping ────────────────────────────────────────────────────
-  @Cron(CronExpression.EVERY_HOUR)
-  async pingInactiveUsers(): Promise<void> {
+  async sendInactivityWarning(user: User, reminder: any): Promise<void> {
     try {
-      const pingCutoff = new Date(Date.now() - 23 * 60 * 60 * 1000);
-      const inactives = await this.userRepository.find({
-        where: {
-          isActive: true,
-          lastMessageTime: LessThan(pingCutoff),
-        },
-      });
-      for (const user of inactives) {
-        try {
-          // Skip users whose trial/plan ended — don't ping them, they must resubscribe
-          const hadPremiumBefore = !!(user.trialEndsAt || user.planExpiresAt || user.couponExpiresAt);
-          if (hadPremiumBefore && !this.planGuardService.hasActiveAccess(user)) {
-            this.logger.log(`Skipping inactivity ping for user ${user.id} (trial/plan ended)`);
-            continue;
-          }
+      const name = (!user.name || user.name === 'there') ? '' : user.name;
+      const title = reminder.title || 'your reminder';
+      const message = [
+        `👋 ${name ? `Hey ${name}!` : 'Hey!'}`,
+        '',
+        `Your recurring reminder "*${title}*" has been paused because you haven't interacted in a while.`,
+        '',
+        `Tap *"Hello"* below to continue receiving reminders.`,
+      ].join('\n');
 
-          // Skip if we already pinged within the last 23 hours
-          if (user.lastPingTime && user.lastPingTime.getTime() > pingCutoff.getTime()) continue;
-
-          const name = (!user.name || user.name === 'there') ? '' : user.name;
-          const lastMsg = user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0;
-          const hoursSinceLastMsg = (Date.now() - lastMsg) / (1000 * 60 * 60);
-          const outsideWindow = hoursSinceLastMsg > 24;
-          const header = name
-            ? `Hey ${name}! 👋 It's been a while — what would you like to do?`
-            : `Hey there! 👋 It's been a while — what would you like to do?`;
-
-          if (outsideWindow) {
-            const bodyComponents = [{
-              type: 'body',
-              parameters: [{ type: 'text', text: header }],
-            }];
-            await this.whatsappService.sendTemplateMessage(user.phone, 'notifications', 'en', bodyComponents);
-          } else {
-            await this.whatsappService.sendInteractiveMessage(user.phone, header, [
-              { id: 'menu_view_list', title: '📋 Today\'s List' },
-              { id: 'menu_show_reminders', title: '⏰ My Reminders' },
-              { id: 'menu_create_reminder', title: '➕ New Reminder' },
-            ]);
-          }
-          // Track last ping time separately from lastMessageTime
-          await this.userService.updateUser(user.id, { lastPingTime: new Date() });
-          this.logger.log(`Inactivity ping sent to user ${user.id}`);
-        } catch (e) {
-          this.logger.error(`Failed to ping inactive user ${user.id}:`, e);
-        }
-      }
-    } catch (e) {
-      this.logger.error('Error in pingInactiveUsers:', e);
+      await this.whatsappService.sendInteractiveMessage(user.phone, message, [
+        { id: 'hello_resume_reminders', title: '👋 Hello' },
+      ]);
+      this.logger.log(`Inactivity warning sent to user ${user.id} for reminder ${reminder.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to send inactivity warning to user ${user.id}:`, error);
     }
+  }
+
+  // ── Inactivity ping ────────────────────────────────────────────────────
+  // DISABLED: Template messages cost money (~₹0.65/template in India).
+  // This was sending template messages to ALL inactive users every hour.
+  // To re-enable, add: @Cron(CronExpression.EVERY_HOUR)
+  async pingInactiveUsers(): Promise<void> {
+    return;
   }
 }

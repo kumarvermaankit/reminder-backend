@@ -109,6 +109,16 @@ export class PlanGuardService {
     return !!(user.trialEndsAt && user.trialEndsAt > new Date());
   }
 
+  getMaxInactiveWarnings(plan: PlanType): number {
+    const limits: Record<PlanType, number> = {
+      free: 1,
+      helper: 1,
+      assistant: 2,
+      manager: 3,
+    };
+    return limits[plan] || 1;
+  }
+
   isCouponActive(user: User): boolean {
     return !!(user.couponExpiresAt && user.couponExpiresAt > new Date());
   }

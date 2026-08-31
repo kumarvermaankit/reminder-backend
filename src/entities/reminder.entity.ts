@@ -41,6 +41,9 @@ export class Reminder {
   @Column({ name: 'max_reminder_count', default: 0 })
   maxReminderCount: number; // 0 = unlimited, otherwise stop after this many reminders
 
+  @Column({ name: 'inactive_reminder_count', default: 0 })
+  inactiveReminderCount: number; // How many reminders sent while user was inactive (outside 24h CSW)
+
   @Column({ name: 'last_reminded_at', type: 'datetime', nullable: true })
   lastRemindedAt: Date;
 

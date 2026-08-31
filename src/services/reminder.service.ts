@@ -128,4 +128,31 @@ export class ReminderService {
     const schedule = this.scheduleRepository.create({ reminderId, scheduledTime });
     return this.scheduleRepository.save(schedule);
   }
+
+  async getPausedRecurringReminders(userId: string): Promise<Reminder[]> {
+    return this.reminderRepository.find({
+      where: {
+        userId,
+        isPersistent: true,
+        isCompleted: true,
+      },
+      order: { lastRemindedAt: 'DESC' },
+    });
+  }
+
+  async resumeReminder(reminderId: string): Promise<void> {
+    const reminder = await this.reminderRepository.findOne({ where: { id: reminderId } });
+    if (!reminder) return;
+
+    // Reset the reminder to active
+    await this.reminderRepository.update(reminderId, {
+      isCompleted: false,
+      reminderCount: 0,
+      inactiveReminderCount: 0,
+    });
+
+    // Create a new schedule for immediate or next interval
+    const nextTime = new Date(Date.now() + (reminder.reminderInterval || 60) * 60 * 1000);
+    await this.createSchedule(reminderId, nextTime);
+  }
 }

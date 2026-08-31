@@ -6,6 +6,7 @@ import { ReminderSchedule } from '../entities/reminder-schedule.entity';
 import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
 import { UserService } from './user.service';
+import { PlanGuardService } from './plan-guard.service';
 
 function partition<T>(arr: T[], pred: (t: T) => boolean): [T[], T[]] {
   const pass: T[] = [];
@@ -29,6 +30,7 @@ export class SchedulerService {
     private readonly reminderRepository: Repository<Reminder>,
     private readonly notificationService: NotificationService,
     private readonly userService: UserService,
+    private readonly planGuardService: PlanGuardService,
   ) {}
 
   @Cron('0 * * * * *')
@@ -133,7 +135,7 @@ export class SchedulerService {
   private async handlePersistentReminder(reminder: any, scheduledTime: Date): Promise<void> {
     const fresh = await this.reminderRepository.findOne({
       where: { id: reminder.id },
-      select: ['id', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval', 'maxReminderCount'],
+      select: ['id', 'userId', 'isCompleted', 'reminderCount', 'isPersistent', 'reminderInterval', 'maxReminderCount', 'inactiveReminderCount'],
     });
     if (!fresh || fresh.isCompleted || !fresh.isPersistent) return;
 
@@ -150,8 +152,44 @@ export class SchedulerService {
       return;
     }
 
+    // Check user inactivity — track reminders sent outside 24h CSW window
+    const user = await this.userService.getUserById(fresh.userId);
+    const isInactive = user?.lastMessageTime
+      ? (Date.now() - new Date(user.lastMessageTime).getTime()) / (1000 * 60 * 60) > 24
+      : true;
+
+    let newInactiveCount = fresh.inactiveReminderCount || 0;
+
+    if (isInactive) {
+      newInactiveCount += 1;
+      const maxWarnings = this.planGuardService.getMaxInactiveWarnings(user?.plan || 'free');
+
+      if (newInactiveCount >= maxWarnings) {
+        // Hit the limit — stop and send warning
+        await this.reminderRepository.update(reminder.id, {
+          reminderCount: newCount,
+          inactiveReminderCount: newInactiveCount,
+          lastRemindedAt: new Date(),
+          isCompleted: true,
+        });
+        this.logger.log(`Persistent reminder ${reminder.id} stopped: ${newInactiveCount} inactive reminders (limit: ${maxWarnings})`);
+        await this.notificationService.sendInactivityWarning(user, reminder);
+        return;
+      }
+
+      // Still under limit — send reminder with a note about upcoming pause
+      this.logger.log(`Persistent reminder ${reminder.id}: inactive reminder ${newInactiveCount}/${maxWarnings}`);
+    } else {
+      // User interacted — reset inactive count
+      if (fresh.inactiveReminderCount > 0) {
+        this.logger.log(`Persistent reminder ${reminder.id}: user active again, resetting inactive count`);
+        newInactiveCount = 0;
+      }
+    }
+
     await this.reminderRepository.update(reminder.id, {
       reminderCount: newCount,
+      inactiveReminderCount: newInactiveCount,
       lastRemindedAt: new Date(),
     });
 

@@ -349,6 +349,43 @@ export class WhatsappController {
         return;
       }
 
+      // Handle "Hello" button to resume paused recurring reminders
+      if (buttonReply.id === 'hello_resume_reminders') {
+        let user = await this.userService.getUserByPhone(userPhone);
+        if (!user) {
+          user = await this.userService.createUser({
+            phone: userPhone,
+            name: 'there',
+            email: `user_${userPhone}@reminder.app`,
+            preferredContactMethod: 'whatsapp',
+            timezone: 'UTC',
+            isActive: true,
+          });
+        }
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
+
+        // Find and resume paused recurring reminders for this user
+        const pausedReminders = await this.reminderService.getPausedRecurringReminders(user.id);
+        if (pausedReminders.length === 0) {
+          await this.sendAssistantReply(userPhone, user.id, "Welcome back! You don't have any paused recurring reminders.", false);
+          return;
+        }
+
+        let resumedCount = 0;
+        for (const reminder of pausedReminders) {
+          await this.reminderService.resumeReminder(reminder.id);
+          resumedCount++;
+        }
+
+        const name = (!user.name || user.name === 'there') ? '' : user.name;
+        const msg = resumedCount === 1
+          ? `👋 Welcome back${name ? `, ${name}` : ''}! Your recurring reminder has been resumed.`
+          : `👋 Welcome back${name ? `, ${name}` : ''}! Your ${resumedCount} recurring reminders have been resumed.`;
+        await this.sendAssistantReply(userPhone, user.id, msg, false);
+        return;
+      }
+
       const [action, scheduleId] = buttonReply.id.split(':');
       if (!scheduleId) {
         this.logger.warn(`Invalid button reply id: ${buttonReply.id}`);
@@ -877,9 +914,14 @@ export class WhatsappController {
           const minPlan = this.planGuardService.minPlanForFeature(requiredFeature);
           const planNames = { helper: 'Helper', assistant: 'Assistant', manager: 'Manager' };
           const planName = planNames[minPlan] || minPlan;
+          const isIndia = (user.country || 'IN').toUpperCase() === 'IN';
+          const planPrices: Record<string, string> = isIndia
+            ? { helper: '₹69', assistant: '₹89', manager: '₹109' }
+            : { helper: '$4', assistant: '$6', manager: '$8' };
+          const priceLine = planPrices[minPlan] ? ` (${planPrices[minPlan]}/mo)` : '';
           const blockedMsg =
             `⚠️ *Upgrade Required*\n\n` +
-            `This feature requires the *${planName}* plan or higher. ` +
+            `This feature requires the *${planName}* plan or higher${priceLine}. ` +
             `Your current plan is *${user.plan === 'free' ? 'Free' : user.plan}*.\n\n` +
             `👉 Subscribe at https://heyping.in/subscribe to unlock it.`;
           await this.sendAssistantReply(userPhone, user.id, blockedMsg, false);
@@ -979,12 +1021,16 @@ export class WhatsappController {
             if (hasAccess && daysLeft > 0) {
               statusLine = `\n\n✅ Your *${user.plan}* plan is active (${daysLeft} day${daysLeft > 1 ? 's' : ''} remaining).`;
             }
+            const isIndia = (user.country || 'IN').toUpperCase() === 'IN';
+            const h = isIndia ? '₹69' : '$4';
+            const a = isIndia ? '₹89' : '$6';
+            const m = isIndia ? '₹109' : '$8';
             botResponse =
               `🌐 *Plans & Subscription*\n\n` +
               `👉 https://heyping.in/subscribe${statusLine}\n\n` +
-              `*Helper* — Reminders + Passwords\n` +
-              `*Assistant* — + Todos, Calorie tracker, Stocks & Cricket\n` +
-              `*Manager* — + Google Calendar, Docs, Sheets, Priority support`;
+              `*Helper* — ${h}/mo — Reminders + Passwords\n` +
+              `*Assistant* — ${a}/mo — + Todos, Calorie tracker, Stocks & Cricket\n` +
+              `*Manager* — ${m}/mo — + Google Calendar, Docs, Sheets, Priority support`;
           }
           break;
         default:
@@ -1860,7 +1906,7 @@ export class WhatsappController {
           isCompleted: false,
           isPersistent,
           reminderInterval,
-          maxReminderCount: isPersistent ? (parsed.maxReminderCount || 0) : 0,
+          maxReminderCount: 0,
           reminderCount: 0,
           todoItemId: null,
           metadata: {

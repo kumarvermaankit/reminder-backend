@@ -101,6 +101,19 @@ export class User {
   @Column({ name: 'trial_end_notice_sent', default: false })
   trialEndNoticeSent: boolean;
 
+  // ── Inactivity tracking ──────────────────────────────────────────────
+  @Column({ name: 'inactivity_detected_at', type: 'datetime', nullable: true })
+  inactivityDetectedAt: Date;
+
+  @Column({ name: 'inactivity_message_count', default: 0 })
+  inactivityMessageCount: number;
+
+  @Column({ name: 'post_inactive_message_count', default: 0 })
+  postInactiveMessageCount: number;
+
+  @Column({ name: 'one_time_sent_during_inactivity', default: 0 })
+  oneTimeSentDuringInactivity: number;
+
   @OneToMany(() => Reminder, reminder => reminder.user)
   reminders: Reminder[];
 

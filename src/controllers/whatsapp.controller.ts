@@ -14,6 +14,7 @@ import { CricketService } from '../services/cricket.service';
 import { IpoService } from '../services/ipo.service';
 import { GoogleCalendarService } from '../services/google-calendar.service';
 import { CalorieHandlerService } from '../services/calorie-handler.service';
+import { InactivityService } from '../services/inactivity.service';
 import { WORKFLOWS } from '../constants/workflows';
 import { appendChatTips, appendChatTipsDetailed } from '../constants/chat-tips';
 import {
@@ -44,6 +45,7 @@ export class WhatsappController {
     private readonly ipoService: IpoService,
     private readonly googleCalendarService: GoogleCalendarService,
     private readonly calorieHandlerService: CalorieHandlerService,
+    private readonly inactivityService: InactivityService,
     private readonly planGuardService: PlanGuardService,
   ) {}
 
@@ -383,6 +385,28 @@ export class WhatsappController {
           ? `👋 Welcome back${name ? `, ${name}` : ''}! Your recurring reminder has been resumed.`
           : `👋 Welcome back${name ? `, ${name}` : ''}! Your ${resumedCount} recurring reminders have been resumed.`;
         await this.sendAssistantReply(userPhone, user.id, msg, false);
+        return;
+      }
+
+      // Handle "Done" button for inactivity continue messages
+      if (buttonReply.id === 'continue_reminders') {
+        let user = await this.userService.getUserByPhone(userPhone);
+        if (!user) {
+          user = await this.userService.createUser({
+            phone: userPhone,
+            name: 'there',
+            email: `user_${userPhone}@reminder.app`,
+            preferredContactMethod: 'whatsapp',
+            timezone: 'UTC',
+            isActive: true,
+          });
+        }
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
+
+        // Reset inactivity and resume reminders
+        const result = await this.inactivityService.handleDoneButton(user);
+        await this.sendAssistantReply(userPhone, user.id, result.message, false);
         return;
       }
 

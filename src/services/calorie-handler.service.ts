@@ -85,7 +85,7 @@ export class CalorieHandlerService {
     await this.userContextService.clearCalorieWorkflow(userId);
     const bmr = this.calorieService.calculateBMR(collected.weight, collected.height, collected.age, collected.gender);
     const tdee = this.calorieService.calculateTDEE(bmr, collected.activityLevel);
-    const target = this.calorieService.calculateDailyTarget(tdee, collected.goal, collected.targetWeight);
+    const target = this.calorieService.calculateDailyTarget(tdee, collected.goal);
 
     await this.calorieService.saveProfile({
       userId,
@@ -120,12 +120,12 @@ export class CalorieHandlerService {
         state: 'awaiting_weight',
         collected: {},
       });
-    } else {
-      await this.userContextService.setCalorieWorkflow(user.id, {
-        state: 'awaiting_weight',
-        collected: {},
-      });
+      return "You already have a calorie profile set up! Starting a new one will overwrite your current data.\n\nWhat is your weight in kg? (e.g. \"70\")";
     }
+    await this.userContextService.setCalorieWorkflow(user.id, {
+      state: 'awaiting_weight',
+      collected: {},
+    });
     return "Let's set up your calorie tracker! 🥗\n\nWhat is your weight in kg? (e.g. \"70\")";
   }
 
@@ -138,7 +138,7 @@ export class CalorieHandlerService {
     if (!foodDesc) return "What did you eat? Tell me like *\"I ate a chicken sandwich for lunch\"*.";
     const mealType = parsed.mealType || '';
     let calories = parsed.calories;
-    if (!calories) {
+    if (calories == null) {
       calories = estimateCalories(foodDesc);
     }
     await this.calorieService.logFood(user.id, foodDesc, calories, mealType);

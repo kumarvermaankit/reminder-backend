@@ -288,7 +288,7 @@ export class WhatsappService {
     );
   }
 
-  async sendTemplateMessage(to: string, templateName: string, languageCode: string = 'en', components?: any[]): Promise<boolean> {
+  async sendTemplateMessage(to: string, templateName: string, languageCode: string = 'en', components?: any[], buttons?: { id: string; title: string }[]): Promise<boolean> {
     try {
       const formattedPhone = to.replace(/^\+/, '');
       
@@ -320,6 +320,22 @@ export class WhatsappService {
 
       if (components) {
         payload.template.components = components;
+      }
+
+      // Add buttons if provided
+      if (buttons && buttons.length > 0) {
+        if (!payload.template.components) {
+          payload.template.components = [];
+        }
+        payload.template.components.push({
+          type: 'button',
+          sub_type: 'quick_reply',
+          index: 0,
+          parameters: buttons.map(btn => ({
+            type: 'payload',
+            payload: btn.id,
+          })),
+        });
       }
 
       const response = await axios.post(

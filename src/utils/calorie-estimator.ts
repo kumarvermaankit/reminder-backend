@@ -33,31 +33,32 @@ export function estimateCalories(description: string): number {
   const lower = description.toLowerCase();
   let total = 0;
 
+  const matchedFoods = new Set<string>();
+
   const quantityPattern = /(\d+)\s*(g|gm|gram|ml)\s+(.+)/g;
   let qMatch: RegExpExecArray | null;
-  let matchedAny = false;
   while ((qMatch = quantityPattern.exec(lower)) !== null) {
     const grams = parseInt(qMatch[1], 10);
     const food = qMatch[3].trim();
-    for (const [regex, calPerUnit] of FOOD_CALORIES) {
+    for (const [regex, calPerUnit, note] of FOOD_CALORIES) {
       if (regex.test(food)) {
         const ratio = grams < 50 ? 0.5 : grams / 100;
         const cal = Math.round(calPerUnit * ratio);
         total += cal;
-        matchedAny = true;
+        matchedFoods.add(food);
       }
     }
   }
 
-  const alreadyMatched = new Set<number>();
   for (const [regex, cal] of FOOD_CALORIES) {
     const match = lower.match(regex);
-    if (match && !alreadyMatched.has(regex.source.charCodeAt(0) || 0)) {
+    if (match) {
       const fullMatch = match[0];
+      if (matchedFoods.has(fullMatch)) continue;
       const numPrefix = lower.slice(0, match.index).match(/(\d+)\s*$/);
       const quantity = numPrefix ? parseInt(numPrefix[1], 10) : 1;
       total += cal * Math.min(quantity, 10);
-      alreadyMatched.add(regex.source.charCodeAt(0) || 0);
+      matchedFoods.add(fullMatch);
     }
   }
 

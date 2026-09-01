@@ -30,7 +30,7 @@ export class ReminderSchedule {
   sentAt: Date;
 
   @Column({ name: 'sent_via', type: 'varchar', nullable: true })
-  sentVia: 'email' | 'whatsapp' | 'sms';
+  sentVia: 'email' | 'whatsapp' | 'sms' | 'inactivity_stop' | 'inactivity_skip' | 'inactivity_limit';
 
   @Column({ name: 'retry_count', default: 0 })
   retryCount: number;

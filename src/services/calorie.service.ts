@@ -42,7 +42,7 @@ export class CalorieService {
     return Math.round(bmr * (multipliers[activityLevel] || 1.2));
   }
 
-  calculateDailyTarget(tdee: number, goal: string, targetWeight?: number, currentWeight?: number): number {
+  calculateDailyTarget(tdee: number, goal: string): number {
     if (goal === 'lose') return tdee - 500;
     if (goal === 'gain') return tdee + 500;
     return tdee; // maintain
@@ -66,7 +66,7 @@ export class CalorieService {
   recalculateTarget(profile: CalorieProfile): number {
     const bmr = this.calculateBMR(profile.weight, profile.height, profile.age, profile.gender);
     const tdee = this.calculateTDEE(bmr, profile.activityLevel);
-    return this.calculateDailyTarget(tdee, profile.goal, profile.targetWeight, profile.weight);
+    return this.calculateDailyTarget(tdee, profile.goal);
   }
 
   // ── Food Logging ────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
 import { UserService } from './user.service';
 import { PlanGuardService } from './plan-guard.service';
+import { InactivityService } from './inactivity.service';
 
 describe('SchedulerService', () => {
   let service: SchedulerService;
@@ -14,6 +15,7 @@ describe('SchedulerService', () => {
   let notificationService: any;
   let userService: any;
   let planGuardService: any;
+  let inactivityService: any;
 
   const mockScheduleRepo = {
     find: jest.fn(),
@@ -44,6 +46,12 @@ describe('SchedulerService', () => {
     getMaxInactiveWarnings: jest.fn(),
   };
 
+  const mockInactivityService = {
+    isUserInactive: jest.fn(),
+    canSendOneTimeReminder: jest.fn(),
+    incrementOneTimeCount: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -54,6 +62,7 @@ describe('SchedulerService', () => {
         { provide: NotificationService, useValue: mockNotificationService },
         { provide: UserService, useValue: mockUserService },
         { provide: PlanGuardService, useValue: mockPlanGuardService },
+        { provide: InactivityService, useValue: mockInactivityService },
       ],
     }).compile();
 
@@ -63,6 +72,7 @@ describe('SchedulerService', () => {
     notificationService = module.get(NotificationService);
     userService = module.get(UserService);
     planGuardService = module.get(PlanGuardService);
+    inactivityService = module.get(InactivityService);
   });
 
   describe('handlePersistentReminder (inactivity tracking)', () => {
@@ -589,9 +599,10 @@ describe('SchedulerService', () => {
       await (service as any).handlePersistentReminder(reminder, overdueTime);
 
       // Should create schedule with now + interval (not overdue + interval)
+      // Allow 1 second tolerance for rounding
       const createCall = scheduleRepo.create.mock.calls[0][0];
       const scheduledTime = createCall.scheduledTime.getTime();
-      expect(scheduledTime).toBeGreaterThanOrEqual(beforeTime + 30 * 60 * 1000);
+      expect(scheduledTime).toBeGreaterThanOrEqual(beforeTime + 30 * 60 * 1000 - 1000);
       expect(scheduledTime).toBeLessThanOrEqual(beforeTime + 31 * 60 * 1000);
     });
   });

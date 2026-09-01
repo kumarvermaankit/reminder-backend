@@ -7,6 +7,7 @@ import { Reminder } from '../entities/reminder.entity';
 import { NotificationService } from './notification.service';
 import { UserService } from './user.service';
 import { PlanGuardService } from './plan-guard.service';
+import { InactivityService } from './inactivity.service';
 
 function partition<T>(arr: T[], pred: (t: T) => boolean): [T[], T[]] {
   const pass: T[] = [];
@@ -31,6 +32,7 @@ export class SchedulerService {
     private readonly notificationService: NotificationService,
     private readonly userService: UserService,
     private readonly planGuardService: PlanGuardService,
+    private readonly inactivityService: InactivityService,
   ) {}
 
   @Cron('0 * * * * *')
@@ -106,6 +108,35 @@ export class SchedulerService {
 
   private async processOne(schedule: ReminderSchedule): Promise<boolean> {
     try {
+      // Check if user is inactive before sending reminder
+      const user = await this.userService.getUserById(schedule.reminder.userId);
+      if (user && this.inactivityService.isUserInactive(user)) {
+        // User is inactive - check if this is a recurring reminder
+        if (schedule.reminder.isPersistent) {
+          // Recurring reminders are stopped during inactivity
+          this.logger.log(`Skipping recurring reminder ${schedule.id} for inactive user ${user.id}`);
+          await this.scheduleRepository.update(schedule.id, {
+            isCompleted: true,
+            sentVia: 'inactivity_skip',
+          });
+          return false;
+        }
+
+        // One-time reminders: check if we can still send based on plan limits
+        const canSend = await this.inactivityService.canSendOneTimeReminder(user);
+        if (!canSend) {
+          this.logger.log(`Skipping one-time reminder ${schedule.id}: inactive user ${user.id} reached limit`);
+          await this.scheduleRepository.update(schedule.id, {
+            isCompleted: true,
+            sentVia: 'inactivity_limit',
+          });
+          return false;
+        }
+
+        // Track this one-time reminder
+        await this.inactivityService.incrementOneTimeCount(user);
+      }
+
       const sent = await this.notificationService.sendReminder(schedule);
 
       if (!sent) {
@@ -256,5 +287,18 @@ export class SchedulerService {
     });
 
     return { total, completed, pending, failed };
+  }
+
+  /**
+   * Hourly cron job to check all users for inactivity.
+   * Sends continue messages and manages grace periods.
+   */
+  @Cron('0 0 * * * *') // Every hour at minute 0
+  async checkInactivity() {
+    try {
+      await this.inactivityService.checkAllUsersInactivity();
+    } catch (error) {
+      this.logger.error('Error checking inactivity:', error);
+    }
   }
 }

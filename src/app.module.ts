@@ -32,6 +32,7 @@ import { CalorieService } from './services/calorie.service';
 import { CalorieHandlerService } from './services/calorie-handler.service';
 import { RazorpayPaymentService } from './services/razorpay-payment.service';
 import { PlanGuardService } from './services/plan-guard.service';
+import { InactivityService } from './services/inactivity.service';
 import { GoogleCalendarController } from './controllers/google-calendar.controller';
 import { RazorpayController } from './controllers/razorpay.controller';
 import { GoogleToken } from './entities/google-token.entity';
@@ -80,6 +81,6 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
     }),
     TypeOrmModule.forFeature([Reminder, ReminderSchedule, User, Note, Password, UserContextEntity, TodoList, TodoItem, GoogleToken, CalorieProfile, FoodLog, Payment, Coupon])  ],
   controllers: [AppController, ReminderController, AiController, WhatsappController, GoogleCalendarController, RazorpayController, AuthController, DashboardController],
-  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService, PlanGuardService, CouponService, AuthService, JwtAuthGuard],
+  providers: [AppService, ReminderService, UserService, WhatsappService, AiService, SimpleAiService, McpAgentService, SchedulerService, NotificationService, NoteService, PasswordService, EncryptionService, UserContextService, TodoListService, ListWorkflowService, StockService, CricketService, IpoService, GoogleCalendarService, CalorieService, CalorieHandlerService, RazorpayPaymentService, PlanGuardService, CouponService, AuthService, JwtAuthGuard, InactivityService],
 })
 export class AppModule {}

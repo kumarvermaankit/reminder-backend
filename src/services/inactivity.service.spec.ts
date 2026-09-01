@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { InactivityService, getGracePeriodReminderLimit, MAX_POST_INACTIVE_MESSAGES, INACTIVITY_THRESHOLD_HOURS, GRACE_MESSAGE_INTERVAL_HOURS, POST_INACTIVE_INTERVAL_DAYS } from './inactivity.service';
+import { InactivityService, getGracePeriodReminderLimit, getPostInactiveMessageLimit, INACTIVITY_THRESHOLD_HOURS, GRACE_MESSAGE_INTERVAL_HOURS, POST_INACTIVE_INTERVAL_DAYS } from './inactivity.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User } from '../entities/user.entity';
 import { Reminder } from '../entities/reminder.entity';
@@ -294,12 +294,26 @@ describe('InactivityService', () => {
     });
   });
 
+  describe('getPostInactiveMessageLimit', () => {
+    it('should return 3 for free/helper', () => {
+      expect(getPostInactiveMessageLimit('free')).toBe(3);
+      expect(getPostInactiveMessageLimit('helper')).toBe(3);
+    });
+
+    it('should return 6 for assistant', () => {
+      expect(getPostInactiveMessageLimit('assistant')).toBe(6);
+    });
+
+    it('should return 9 for manager', () => {
+      expect(getPostInactiveMessageLimit('manager')).toBe(9);
+    });
+  });
+
   describe('constants', () => {
     it('should have correct threshold values', () => {
-      expect(MAX_POST_INACTIVE_MESSAGES).toBe(10);
       expect(INACTIVITY_THRESHOLD_HOURS).toBe(24);
       expect(GRACE_MESSAGE_INTERVAL_HOURS).toBe(12);
-      expect(POST_INACTIVE_INTERVAL_DAYS).toBe(2);
+      expect(POST_INACTIVE_INTERVAL_DAYS).toBe(3);
     });
   });
 });

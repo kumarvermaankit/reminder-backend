@@ -17,8 +17,16 @@ export function getGracePeriodReminderLimit(plan: PlanType): number {
   return limits[plan] || 6;
 }
 
-/** Max post-inactive continue messages before giving up */
-export const MAX_POST_INACTIVE_MESSAGES = 10;
+/** Max post-inactive continue messages before giving up (per plan) */
+export function getPostInactiveMessageLimit(plan: PlanType): number {
+  const limits: Record<PlanType, number> = {
+    free: 3,
+    helper: 3,
+    assistant: 6,
+    manager: 9,
+  };
+  return limits[plan] || 3;
+}
 
 /** Hours after last message before user is considered inactive */
 export const INACTIVITY_THRESHOLD_HOURS = 24;
@@ -27,7 +35,7 @@ export const INACTIVITY_THRESHOLD_HOURS = 24;
 export const GRACE_MESSAGE_INTERVAL_HOURS = 12;
 
 /** Days between post-inactive continue messages */
-export const POST_INACTIVE_INTERVAL_DAYS = 2;
+export const POST_INACTIVE_INTERVAL_DAYS = 3;
 
 @Injectable()
 export class InactivityService {
@@ -279,16 +287,19 @@ export class InactivityService {
       }
 
       // Case 3: User is post-inactive (grace period expired)
-      if (user.inactivityDetectedAt && user.postInactiveMessageCount < MAX_POST_INACTIVE_MESSAGES) {
-        const hoursSinceDetection = (Date.now() - new Date(user.inactivityDetectedAt).getTime()) / (1000 * 60 * 60);
-        const hoursSinceLastContinue = user.postInactiveMessageCount > 0
-          ? hoursSinceDetection - (INACTIVITY_THRESHOLD_HOURS + GRACE_MESSAGE_INTERVAL_HOURS + (user.postInactiveMessageCount * POST_INACTIVE_INTERVAL_DAYS * 24))
-          : hoursSinceDetection - INACTIVITY_THRESHOLD_HOURS;
+      if (user.inactivityDetectedAt) {
+        const postInactiveLimit = getPostInactiveMessageLimit(user.plan);
+        if (user.postInactiveMessageCount < postInactiveLimit) {
+          const hoursSinceDetection = (Date.now() - new Date(user.inactivityDetectedAt).getTime()) / (1000 * 60 * 60);
+          const hoursSinceLastContinue = user.postInactiveMessageCount > 0
+            ? hoursSinceDetection - (INACTIVITY_THRESHOLD_HOURS + GRACE_MESSAGE_INTERVAL_HOURS + (user.postInactiveMessageCount * POST_INACTIVE_INTERVAL_DAYS * 24))
+            : hoursSinceDetection - INACTIVITY_THRESHOLD_HOURS;
 
-        // Send continue message every 2 days
-        if (hoursSinceLastContinue >= POST_INACTIVE_INTERVAL_DAYS * 24) {
-          const sent = await this.sendContinueMessage(user, true);
-          if (sent) postInactiveSent++;
+          // Send continue message every 3 days
+          if (hoursSinceLastContinue >= POST_INACTIVE_INTERVAL_DAYS * 24) {
+            const sent = await this.sendContinueMessage(user, true);
+            if (sent) postInactiveSent++;
+          }
         }
       }
     }

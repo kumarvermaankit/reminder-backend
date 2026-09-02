@@ -126,9 +126,11 @@ export class InactivityService {
     const message = [
       `👋 ${name ? `Hey ${name}!` : 'Hey!'}`,
       '',
-      `We noticed you haven't been around for a while, so we've paused your reminders to keep things tidy — this also helps us keep WhatsApp messaging costs low for everyone.`,
+      `It looks like you've been away for a bit 🕐`,
       '',
-      `Tap *Done* below whenever you're ready, and we'll get everything running again for you.`,
+      `We've gently paused your reminders to keep things clean and help reduce WhatsApp messaging costs 💚`,
+      '',
+      `Ready to pick up where you left off? Just tap *Done* below and we'll get you back on track! ✨`,
     ].join('\n');
 
     try {

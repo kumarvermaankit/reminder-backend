@@ -126,9 +126,9 @@ export class InactivityService {
     const message = [
       `👋 ${name ? `Hey ${name}!` : 'Hey!'}`,
       '',
-      `Your reminders have been paused due to inactivity.`,
+      `We noticed you haven't been around for a while, so we've paused your reminders to keep things tidy.`,
       '',
-      `Tap *Done* below to continue receiving reminders.`,
+      `Tap *Done* below whenever you're ready, and we'll get everything running again for you.`,
     ].join('\n');
 
     try {

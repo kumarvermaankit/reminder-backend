@@ -271,7 +271,8 @@ export class InactivityService {
       }
 
       // Case 2: User is in grace period (24h-36h, inactivity detected but not yet marked fully inactive)
-      if (user.inactivityDetectedAt && user.inactivityMessageCount < 2) {
+      // Guard: only process if user is actually still inactive (lastMessageTime > 24h ago)
+      if (user.inactivityDetectedAt && user.inactivityMessageCount < 2 && hoursSinceLastMsg >= INACTIVITY_THRESHOLD_HOURS) {
         const hoursSinceDetection = (Date.now() - new Date(user.inactivityDetectedAt).getTime()) / (1000 * 60 * 60);
 
         // Send second continue message at 12h after detection (36h from last message)
@@ -289,7 +290,8 @@ export class InactivityService {
       }
 
       // Case 3: User is post-inactive (grace period expired)
-      if (user.inactivityDetectedAt) {
+      // Guard: only process if user is actually still inactive (lastMessageTime > 24h ago)
+      if (user.inactivityDetectedAt && hoursSinceLastMsg >= INACTIVITY_THRESHOLD_HOURS) {
         const postInactiveLimit = getPostInactiveMessageLimit(user.plan);
         if (user.postInactiveMessageCount < postInactiveLimit) {
           const hoursSinceDetection = (Date.now() - new Date(user.inactivityDetectedAt).getTime()) / (1000 * 60 * 60);

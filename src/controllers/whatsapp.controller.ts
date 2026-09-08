@@ -267,7 +267,7 @@ export class WhatsappController {
         });
       }
 
-      await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+      await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
 
       await this.userContextService.pushMessage(user.id, 'user', `[menu] ${listReply.title}`);
 
@@ -306,7 +306,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
-        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
         await this.listWorkflowService.handleButton(userPhone, user.id, buttonReply.id);
         return;
@@ -325,7 +325,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
-        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
         await this.listWorkflowService.sendSlideUpMenu(userPhone, user.id);
         return;
@@ -345,7 +345,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
-        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
         await this.listWorkflowService.handleListReply(userPhone, user.id, buttonReply.id, user.timezone);
         return;
@@ -364,7 +364,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
-        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
 
         // Find and resume paused recurring reminders for this user
@@ -401,7 +401,7 @@ export class WhatsappController {
             isActive: true,
           });
         }
-        await this.userService.updateUser(user.id, { lastMessageTime: new Date() });
+        await this.userService.updateUser(user.id, { lastMessageTime: new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
         await this.userContextService.pushMessage(user.id, 'user', `[button] ${buttonReply.title}`);
 
         // Reset inactivity and resume reminders
@@ -499,7 +499,7 @@ export class WhatsappController {
       }
       
       // Track last message time for inactivity ping
-      await this.userService.updateUser(user.id, { lastMessageTime: msgTimestamp || new Date() });
+      await this.userService.updateUser(user.id, { lastMessageTime: msgTimestamp || new Date(), inactivityDetectedAt: null, inactivityMessageCount: 0, postInactiveMessageCount: 0, oneTimeSentDuringInactivity: 0, });
 
       // Trial/plan ended: block the assistant flow and point to subscribe.
       // Pure free users (never had a trial) keep working normally.

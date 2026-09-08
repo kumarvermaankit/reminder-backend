@@ -33,8 +33,8 @@ export class RazorpayPaymentService {
         'Personal notes vault',
         'Password manager',
       ],
-      pricing_monthly: { USD: 400, INR: 6900, GBP: 79, EUR: 89 },
-      pricing_yearly: { USD: 4000, INR: 69900, GBP: 799, EUR: 899 },
+      pricing_monthly: { USD: 400, INR: 6900 },
+      pricing_yearly: { USD: 4000, INR: 69900 },
     },
     {
       id: 'assistant',
@@ -47,8 +47,8 @@ export class RazorpayPaymentService {
         'Calorie & diet tracker',
         'Live stock & cricket queries',
       ],
-      pricing_monthly: { USD: 600, INR: 8900, GBP: 99, EUR: 119 },
-      pricing_yearly: { USD: 6000, INR: 89900, GBP: 999, EUR: 1199 },
+      pricing_monthly: { USD: 700, INR: 8900 },
+      pricing_yearly: { USD: 7000, INR: 89900 },
     },
     {
       id: 'manager',
@@ -61,8 +61,8 @@ export class RazorpayPaymentService {
         'Google Sheets integration',
         'Priority 24/7 support',
       ],
-      pricing_monthly: { USD: 800, INR: 10900, GBP: 149, EUR: 179 },
-      pricing_yearly: { USD: 8000, INR: 109900, GBP: 1499, EUR: 1799 },
+      pricing_monthly: { USD: 1000, INR: 10900 },
+      pricing_yearly: { USD: 10000, INR: 109900 },
     },
   ];
 
@@ -97,12 +97,7 @@ export class RazorpayPaymentService {
   }
 
   getCurrencyForCountry(countryCode: string): string {
-    const currencyMap: Record<string, string> = {
-      US: 'USD', IN: 'INR', GB: 'GBP', UK: 'GBP',
-      DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR',
-      AU: 'AUD', CA: 'CAD', BR: 'USD', JP: 'USD', CN: 'USD',
-    };
-    return currencyMap[countryCode.toUpperCase()] || 'USD';
+    return countryCode.toUpperCase() === 'IN' ? 'INR' : 'USD';
   }
 
   async createOrder(planId: string, countryCode: string, interval: 'monthly' | 'yearly' = 'monthly'): Promise<any> {

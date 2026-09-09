@@ -20,6 +20,43 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
+  /** Normalize phone to WhatsApp format: digits only with country code prefix (e.g. 919555418627). */
+  private normalizePhone(phone: string, countryCode: string = 'IN'): string {
+    let digits = (phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+
+    // Strip leading 00 international prefix
+    if (digits.startsWith('00')) digits = digits.slice(2);
+
+    const dialCodes: Record<string, string> = {
+      IN: '91', US: '1', GB: '44', UK: '44', AU: '61', CA: '1',
+      DE: '49', FR: '33', SG: '65', AE: '971',
+    };
+    const dial = dialCodes[countryCode.toUpperCase()] || '91';
+
+    // Local Indian mobile: 10 digits starting 6-9
+    if (countryCode.toUpperCase() === 'IN' && /^[6-9]\d{9}$/.test(digits)) {
+      return `${dial}${digits}`;
+    }
+
+    // Already has country code
+    if (digits.startsWith(dial) && digits.length >= dial.length + 8) {
+      return digits;
+    }
+
+    // US/CA 10-digit local
+    if ((countryCode === 'US' || countryCode === 'CA') && digits.length === 10) {
+      return `${dial}${digits}`;
+    }
+
+    // Fallback: if looks like local (too short for E.164), prepend dial
+    if (digits.length <= 11 && !digits.startsWith(dial)) {
+      return `${dial}${digits}`;
+    }
+
+    return digits;
+  }
+
   async register(data: {
     email: string;
     password: string;
@@ -34,8 +71,9 @@ export class AuthService {
       throw new BadRequestException('Password must be at least 6 characters');
     }
 
+    const normalizedPhone = data.phone ? this.normalizePhone(data.phone) : null;
     const existing = await this.userRepository.findOne({
-      where: [{ email }, ...(data.phone ? [{ phone: data.phone }] : [])],
+      where: [{ email }, ...(normalizedPhone ? [{ phone: normalizedPhone }] : [])],
     });
     if (existing) {
       const field = existing.email === email ? 'email' : 'WhatsApp number';
@@ -48,7 +86,7 @@ export class AuthService {
         email,
         passwordHash,
         name: data.name.trim(),
-        phone: data.phone || null,
+        phone: normalizedPhone,
         country: 'IN',
         preferredContactMethod: data.phone ? 'whatsapp' : 'email',
         isActive: true,
@@ -108,7 +146,7 @@ export class AuthService {
       }
     }
     if (data.phone) {
-      const normalized = data.phone.trim().replace(/[^0-9]/g, '');
+      const normalized = this.normalizePhone(data.phone);
       if (!normalized) throw new BadRequestException('Invalid WhatsApp number');
       const owner = await this.userRepository.findOne({ where: { phone: normalized } });
       if (owner && owner.id !== userId) {

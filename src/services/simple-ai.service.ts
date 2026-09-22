@@ -4,6 +4,7 @@ import { Groq } from 'groq-sdk';
 import { Together } from 'together-ai';
 import Replicate from 'replicate';
 import OpenAI from 'openai';
+import { OpenRouter } from '@openrouter/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ParsedReminder } from '../types/parsed-reminder.interface';
 import { WORKFLOWS } from '../constants/workflows';
@@ -62,13 +63,13 @@ export class SimpleAiService {
   }
 
   private initializeProviders() {
-    const factories: { name: ProviderName; apiKey: string | undefined; build: () => AIProvider }[] = [
+    const factories: { name: ProviderName; apiKey: string | undefined; build: (key: string) => AIProvider }[] = [
       {
         name: 'groq',
         apiKey: this.configService.get<string>('GROQ_API_KEY'),
-        build: () => ({
+        build: (key) => ({
           name: 'groq',
-          client: new Groq({ apiKey: factories[0].apiKey }),
+          client: new Groq({ apiKey: key }),
           models: this.resolveModels('groq'),
           priority: 0,
           costPerRequest: 0.000,
@@ -77,9 +78,9 @@ export class SimpleAiService {
       {
         name: 'together',
         apiKey: this.configService.get<string>('TOGETHER_API_KEY'),
-        build: () => ({
+        build: (key) => ({
           name: 'together',
-          client: new Together({ apiKey: factories[1].apiKey }),
+          client: new Together({ apiKey: key }),
           models: this.resolveModels('together'),
           priority: 0,
           costPerRequest: 0.0008,
@@ -88,9 +89,9 @@ export class SimpleAiService {
       {
         name: 'replicate',
         apiKey: this.configService.get<string>('REPLICATE_API_TOKEN'),
-        build: () => ({
+        build: (key) => ({
           name: 'replicate',
-          client: new Replicate({ auth: factories[2].apiKey }),
+          client: new Replicate({ auth: key }),
           models: this.resolveModels('replicate'),
           priority: 0,
           costPerRequest: 0.001,
@@ -99,9 +100,9 @@ export class SimpleAiService {
       {
         name: 'deepseek',
         apiKey: this.configService.get<string>('DEEPSEEK_API_KEY'),
-        build: () => ({
+        build: (key) => ({
           name: 'deepseek',
-          client: new OpenAI({ apiKey: factories[3].apiKey, baseURL: 'https://api.deepseek.com/v1' }),
+          client: new OpenAI({ apiKey: key, baseURL: 'https://api.deepseek.com/v1' }),
           models: this.resolveModels('deepseek'),
           priority: 0,
           costPerRequest: 0.000,
@@ -110,9 +111,9 @@ export class SimpleAiService {
       {
         name: 'openrouter',
         apiKey: this.configService.get<string>('OPENROUTER_API_KEY'),
-        build: () => ({
+        build: (key) => ({
           name: 'openrouter',
-          client: new OpenAI({ apiKey: factories[5].apiKey, baseURL: 'https://openrouter.ai/api/v1' }),
+          client: new OpenRouter({ apiKey: key }),
           models: this.resolveModels('openrouter'),
           priority: 0,
           costPerRequest: 0,
@@ -121,9 +122,9 @@ export class SimpleAiService {
       {
         name: 'gemini',
         apiKey: this.configService.get<string>('GEMINI_API_KEY'),
-        build: () => ({
+        build: (key) => ({
           name: 'gemini',
-          client: new GoogleGenerativeAI(factories[6].apiKey!),
+          client: new GoogleGenerativeAI(key),
           models: this.resolveModels('gemini'),
           priority: 0,
           costPerRequest: 0.001,
@@ -134,7 +135,7 @@ export class SimpleAiService {
     // Build providers that have an API key
     for (const f of factories) {
       if (f.apiKey) {
-        this.providers.push(f.build());
+        this.providers.push(f.build(f.apiKey));
         this.logger.log(`${f.name.toUpperCase()}_API_KEY: FOUND`);
       } else {
         this.logger.log(`${f.name.toUpperCase()}_API_KEY: NOT FOUND`);
@@ -253,8 +254,9 @@ export class SimpleAiService {
           return await this.parseWithGroq(provider, fullPrompt);
         case 'together':
         case 'deepseek':
-        case 'openrouter':
           return await this.parseWithTogether(provider, fullPrompt);
+        case 'openrouter':
+          return await this.parseWithOpenRouter(provider, fullPrompt);
         case 'replicate':
           return await this.parseWithReplicate(provider, fullPrompt);
         case 'gemini':
@@ -284,8 +286,9 @@ export class SimpleAiService {
           return await this.generateWithGroq(provider, userInput, reminder);
         case 'together':
         case 'deepseek':
-        case 'openrouter':
           return await this.generateWithTogether(provider, userInput, reminder);
+        case 'openrouter':
+          return await this.generateWithOpenRouter(provider, userInput, reminder);
         case 'replicate':
           return await this.generateWithReplicate(provider, userInput, reminder);
         case 'gemini':
@@ -311,8 +314,9 @@ export class SimpleAiService {
           return await this.detectCompletionWithGroq(provider, userInput, userReminders);
         case 'together':
         case 'deepseek':
-        case 'openrouter':
           return await this.detectCompletionWithTogether(provider, userInput, userReminders);
+        case 'openrouter':
+          return await this.detectCompletionWithOpenRouter(provider, userInput, userReminders);
         case 'replicate':
           return await this.detectCompletionWithReplicate(provider, userInput, userReminders);
         case 'gemini':
@@ -716,6 +720,64 @@ RULES:
     });
 
     const content = response.join('');
+    return content ? JSON.parse(content) : { completed: false, response: "Got it!" };
+  }
+
+  private async parseWithOpenRouter(provider: AIProvider, userInput: string): Promise<ParsedReminder> {
+    const response = await provider.client.chat.send({
+      chatRequest: {
+        model: provider.models.parsing,
+        messages: [
+          { role: 'system', content: SYSTEM_MESSAGE_DETECT_INTENT },
+          { role: 'user', content: `Parse: "${userInput}".\nReturn JSON with actionType, reminderId, title, description, priority, category, confidence, needsClarification, noteKey, noteContent, serviceName, password, todoListTitle, todoListTitles, deletePattern, todoItemContent, todoItemContents, intervalMinutes, isRecurring, maxReminderCount, stockSymbol, targetPrice, priceDirection, matchQuery, dayOfWeek, attendees, foodDescription, mealType, calories, weight, height, age, gender, activityLevel, goal, targetWeight\n\nRULES:\n- If the message contains a URL, DO NOT include it in the title — the system attaches it to the reminder automatically.\n- Wall-clock time ("at 5PM", "at 7am"): set localTime to EXACT text (e.g. "7am", "5:05 PM"). Do NOT set reminderDate for time-only requests.\n- If a specific date is mentioned alongside a time ("on 28 July at 8AM", "on Dec 25 at 3pm"): set reminderDate to YYYY-MM-DD (e.g. "2026-07-28") AND localTime to the time text ("8AM"). Do NOT put dates in the title.\n- Relative one-shot ("in 2 minutes", "in 1 hour"): set intervalMinutes (2, 60). Do NOT set isRecurring. Leave reminderDate and localTime empty.
+- Recurring ("every 15 minutes", "remind me every hour"): set intervalMinutes AND isRecurring=true.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- For calendar events: extract attendee emails into attendees array.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]\n- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "my events" → list_events\n- "delete my shopping list" → actionType=delete_list, todoListTitle="shopping list"\n- "delete shopping list and work list" → actionType=delete_list, todoListTitles=["shopping list", "work list"]\n- "delete all daily lists" → actionType=delete_list, deletePattern="daily"\n- "I want to track calories" → actionType=calorie_setup\n- "I ate a chicken sandwich for lunch" → actionType=log_food, foodDescription="chicken sandwich", mealType="lunch"\n- "log 350 calories paneer" → actionType=log_food, foodDescription="paneer", calories=350\n- "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total meal calories\n- "how many calories today" → calorie_status\n- "give me diet advice" → diet_advice\n- "make a payment" or "I want to subscribe" → make_payment` }
+        ],
+        temperature: 0.3,
+        maxTokens: 300
+      }
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error('No response from OpenRouter');
+    const parsed = JSON.parse(content);
+    this.logger.log(`parseWithOpenRouter raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
+    return parsed;
+  }
+
+  private async generateWithOpenRouter(provider: AIProvider, userInput: string, reminder?: ParsedReminder): Promise<string> {
+    const prompt = GENERATE_RESPONSE_PROMPT_TOGETHER(userInput, reminder?.title, reminder?.reminderDate);
+
+    const response = await provider.client.chat.send({
+      chatRequest: {
+        model: provider.models.response,
+        messages: [
+          { role: 'system', content: SYSTEM_MESSAGE_FRIENDLY_AI_WITH_WORKFLOWS(WORKFLOWS) },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.8,
+        maxTokens: 200
+      }
+    });
+
+    return response.choices[0]?.message?.content || "I got you! I'll help set that reminder.";
+  }
+
+  private async detectCompletionWithOpenRouter(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
+    const remindersText = userReminders.map(r => `ID: ${r.id}, Title: ${r.title}, Created: ${r.createdAt}`).join('\n');
+    
+    const response = await provider.client.chat.send({
+      chatRequest: {
+        model: provider.models.completion,
+        messages: [
+          { role: 'system', content: SYSTEM_MESSAGE_DETECT_COMPLETION_SIMPLE(remindersText) },
+          { role: 'user', content: userInput }
+        ],
+        temperature: 0.3,
+        maxTokens: 150
+      }
+    });
+
+    const content = response.choices[0]?.message?.content;
     return content ? JSON.parse(content) : { completed: false, response: "Got it!" };
   }
 

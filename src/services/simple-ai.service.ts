@@ -739,7 +739,8 @@ RULES:
 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from OpenRouter');
-    const parsed = JSON.parse(content);
+    let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
+    const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithOpenRouter raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
   }
@@ -778,7 +779,9 @@ RULES:
     });
 
     const content = response.choices[0]?.message?.content;
-    return content ? JSON.parse(content) : { completed: false, response: "Got it!" };
+    if (!content) return { completed: false, response: "Got it!" };
+    let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
+    return JSON.parse(jsonStr);
   }
 
   private getStaticResponse(userInput: string, reminder?: ParsedReminder): string {

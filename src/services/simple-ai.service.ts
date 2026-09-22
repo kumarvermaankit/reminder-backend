@@ -32,9 +32,10 @@ interface AIProvider {
   costPerRequest: number;
 }
 
-type ProviderName = 'groq' | 'together' | 'replicate' | 'deepseek' | 'gemini';
+type ProviderName = 'groq' | 'together' | 'replicate' | 'deepseek' | 'gemini' | 'openrouter';
 
 const DEFAULT_PRIORITY: Record<ProviderName, number> = {
+  openrouter: 6,
   groq: 5,
   together: 4,
   replicate: 3,
@@ -48,6 +49,7 @@ const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; 
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
   gemini: { parsing: 'gemini-3.6-flash', response: 'gemini-3.6-flash', completion: 'gemini-3.6-flash' },
+  openrouter: { parsing: 'inclusionai/ling-3.0-flash-vl:free', response: 'inclusionai/ling-3.0-flash-vl:free', completion: 'inclusionai/ling-3.0-flash-vl:free' },
 };
 
 @Injectable()
@@ -106,11 +108,22 @@ export class SimpleAiService {
         }),
       },
       {
+        name: 'openrouter',
+        apiKey: this.configService.get<string>('OPENROUTER_API_KEY'),
+        build: () => ({
+          name: 'openrouter',
+          client: new OpenAI({ apiKey: factories[5].apiKey, baseURL: 'https://openrouter.ai/api/v1' }),
+          models: this.resolveModels('openrouter'),
+          priority: 0,
+          costPerRequest: 0,
+        }),
+      },
+      {
         name: 'gemini',
         apiKey: this.configService.get<string>('GEMINI_API_KEY'),
         build: () => ({
           name: 'gemini',
-          client: new GoogleGenerativeAI(factories[4].apiKey!),
+          client: new GoogleGenerativeAI(factories[6].apiKey!),
           models: this.resolveModels('gemini'),
           priority: 0,
           costPerRequest: 0.001,
@@ -240,6 +253,7 @@ export class SimpleAiService {
           return await this.parseWithGroq(provider, fullPrompt);
         case 'together':
         case 'deepseek':
+        case 'openrouter':
           return await this.parseWithTogether(provider, fullPrompt);
         case 'replicate':
           return await this.parseWithReplicate(provider, fullPrompt);
@@ -270,6 +284,7 @@ export class SimpleAiService {
           return await this.generateWithGroq(provider, userInput, reminder);
         case 'together':
         case 'deepseek':
+        case 'openrouter':
           return await this.generateWithTogether(provider, userInput, reminder);
         case 'replicate':
           return await this.generateWithReplicate(provider, userInput, reminder);
@@ -296,6 +311,7 @@ export class SimpleAiService {
           return await this.detectCompletionWithGroq(provider, userInput, userReminders);
         case 'together':
         case 'deepseek':
+        case 'openrouter':
           return await this.detectCompletionWithTogether(provider, userInput, userReminders);
         case 'replicate':
           return await this.detectCompletionWithReplicate(provider, userInput, userReminders);

@@ -143,7 +143,7 @@ export class SimpleAiService {
     }
 
     // Sort by AI_PROVIDER_ORDER env var, or fall back to DEFAULT_PRIORITY
-    const orderRaw = this.configService.get<string>('AI_PROVIDER_ORDER') || '';
+    const orderRaw = (this.configService.get<string>('AI_PROVIDER_ORDER') || '').replace(/"/g, '');
     if (orderRaw) {
       const order = orderRaw.toLowerCase().split(',').map(s => s.trim()) as ProviderName[];
       const rank = Object.fromEntries(order.map((name, i) => [name, order.length - i]));

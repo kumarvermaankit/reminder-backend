@@ -266,9 +266,26 @@ export class SimpleAiService {
       }
     } catch (error) {
       this.logger.error(`Failed to parse with ${provider.name}:`, error);
-      if (this.providers.length > 1) {
-        this.providers.shift();
-        return this.parseReminderInput(userInput, userId, conversation, pendingReminders, msgTimestamp, timezone);
+      for (let i = 1; i < this.providers.length; i++) {
+        const fallback = this.providers[i];
+        try {
+          this.logger.log(`Retrying parse with ${fallback.name}`);
+          switch (fallback.name) {
+            case 'groq':
+              return await this.parseWithGroq(fallback, fullPrompt);
+            case 'together':
+            case 'deepseek':
+              return await this.parseWithTogether(fallback, fullPrompt);
+            case 'openrouter':
+              return await this.parseWithOpenRouter(fallback, fullPrompt);
+            case 'replicate':
+              return await this.parseWithReplicate(fallback, fullPrompt);
+            case 'gemini':
+              return await this.parseWithGemini(fallback, fullPrompt);
+          }
+        } catch (fallbackError) {
+          this.logger.error(`Failed to parse with ${fallback.name}:`, fallbackError);
+        }
       }
       throw error;
     }

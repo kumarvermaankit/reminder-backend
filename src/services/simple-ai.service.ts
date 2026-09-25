@@ -45,7 +45,7 @@ const DEFAULT_PRIORITY: Record<ProviderName, number> = {
 };
 
 const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; completion: string }> = {
-  groq: { parsing: 'groq/compound-mini', response: 'groq/compound-mini', completion: 'groq/compound-mini' },
+  groq: { parsing: 'llama-3.1-8b-instant', response: 'llama-3.1-8b-instant', completion: 'llama-3.1-8b-instant' },
   together: { parsing: 'meta-llama/Llama-3-8b-chat-hf', response: 'meta-llama/Llama-3-8b-chat-hf', completion: 'meta-llama/Llama-3-8b-chat-hf' },
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
@@ -740,6 +740,9 @@ RULES:
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from OpenRouter');
     let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
+    // Extract JSON object from mixed text (e.g. "User Safety: safe {...}")
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) jsonStr = jsonMatch[0];
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithOpenRouter raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
@@ -781,6 +784,8 @@ RULES:
     const content = response.choices[0]?.message?.content;
     if (!content) return { completed: false, response: "Got it!" };
     let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) jsonStr = jsonMatch[0];
     return JSON.parse(jsonStr);
   }
 

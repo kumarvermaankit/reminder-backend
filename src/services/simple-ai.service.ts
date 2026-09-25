@@ -750,17 +750,19 @@ RULES:
 - Recurring ("every 15 minutes", "remind me every hour"): set intervalMinutes AND isRecurring=true.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- For calendar events: extract attendee emails into attendees array.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]\n- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "my events" → list_events\n- "delete my shopping list" → actionType=delete_list, todoListTitle="shopping list"\n- "delete shopping list and work list" → actionType=delete_list, todoListTitles=["shopping list", "work list"]\n- "delete all daily lists" → actionType=delete_list, deletePattern="daily"\n- "I want to track calories" → actionType=calorie_setup\n- "I ate a chicken sandwich for lunch" → actionType=log_food, foodDescription="chicken sandwich", mealType="lunch"\n- "log 350 calories paneer" → actionType=log_food, foodDescription="paneer", calories=350\n- "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total meal calories\n- "how many calories today" → calorie_status\n- "give me diet advice" → diet_advice\n- "make a payment" or "I want to subscribe" → make_payment` }
         ],
         temperature: 0.3,
-        maxTokens: 800,
-        responseFormat: { type: 'json_object' }
+        maxTokens: 800
       }
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error('No response from OpenRouter');
-    let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
-    // Extract JSON object from mixed text (e.g. "User Safety: safe {...}")
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) jsonStr = jsonMatch[0];
+    let jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    // Extract JSON object from mixed text
+    const start = jsonStr.indexOf('{');
+    const end = jsonStr.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      jsonStr = jsonStr.substring(start, end + 1);
+    }
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithOpenRouter raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
@@ -801,9 +803,12 @@ RULES:
 
     const content = response.choices[0]?.message?.content;
     if (!content) return { completed: false, response: "Got it!" };
-    let jsonStr = content.replace(/```json\s*/, '').replace(/```\s*$/, '').replace(/```\s*/, '').trim();
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) jsonStr = jsonMatch[0];
+    let jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const start = jsonStr.indexOf('{');
+    const end = jsonStr.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      jsonStr = jsonStr.substring(start, end + 1);
+    }
     return JSON.parse(jsonStr);
   }
 

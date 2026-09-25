@@ -50,7 +50,7 @@ const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; 
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
   gemini: { parsing: 'gemini-3.6-flash', response: 'gemini-3.6-flash', completion: 'gemini-3.6-flash' },
-  openrouter: { parsing: 'meta-llama/llama-3.3-70b-instruct:free', response: 'meta-llama/llama-3.3-70b-instruct:free', completion: 'meta-llama/llama-3.3-70b-instruct:free' },
+  openrouter: { parsing: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free', response: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free', completion: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' },
 };
 
 @Injectable()

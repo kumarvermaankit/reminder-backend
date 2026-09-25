@@ -50,7 +50,7 @@ const DEFAULT_MODELS: Record<ProviderName, { parsing: string; response: string; 
   replicate: { parsing: 'meta/meta-llama-3-8b-instruct', response: 'meta/meta-llama-3-8b-instruct', completion: 'meta/meta-llama-3-8b-instruct' },
   deepseek: { parsing: 'deepseek-chat', response: 'deepseek-chat', completion: 'deepseek-chat' },
   gemini: { parsing: 'gemini-3.6-flash', response: 'gemini-3.6-flash', completion: 'gemini-3.6-flash' },
-  openrouter: { parsing: 'openrouter/free', response: 'openrouter/free', completion: 'openrouter/free' },
+  openrouter: { parsing: 'meta-llama/llama-3.3-70b-instruct:free', response: 'meta-llama/llama-3.3-70b-instruct:free', completion: 'meta-llama/llama-3.3-70b-instruct:free' },
 };
 
 @Injectable()
@@ -750,7 +750,8 @@ RULES:
 - Recurring ("every 15 minutes", "remind me every hour"): set intervalMinutes AND isRecurring=true.\n- Day of week ("every thursday", "every Monday", "tuesday"): set dayOfWeek to lowercase day name (e.g. "thursday", "monday"). If also has a time, set localTime too.\n- For calendar events: extract attendee emails into attendees array.\n- Do NOT compute any UTC timestamps.\n- "what\\'s the price of Reliance" → check_stock, stockSymbol="reliance"\n- "alert when Reliance hits 5000" → stock_alert, stockSymbol="reliance", targetPrice=5000, priceDirection="above"\n- "cricket score" → check_cricket, matchQuery="india"\n- "match updates every 15 min" → match_alert, matchQuery (team), intervalMinutes=15\n- "add milk to shopping list and remind me at 5pm" → actionType=add_todo_item, todoListTitle="shopping list", todoItemContent="milk", localTime="5pm"\n- "remind me to buy milk at 5pm" → actionType=create_reminder, title="buy milk", localTime="5pm"\n- "remind me about my shopping list at 5pm" → actionType=create_reminder, title="Shopping list items", todoListTitle="shopping list", localTime="5pm"\n- "remind me every thursday 8am" → actionType=create_reminder, title="Reminder", dayOfWeek="thursday", localTime="8am"\n- "create a meeting in 2 minutes and send invite to john@example.com" → actionType=create_event, title="Meeting", intervalMinutes=2, attendees=["john@example.com"]\n- "schedule a call with John at 5pm" → actionType=create_event, title="Call with John", localTime="5pm"\n- "current IPOs" → check_ipo\n- "upcoming IPOs" → check_ipo, matchQuery="upcoming"\n- "connect my Google Calendar" → connect_calendar\n- "my events" → list_events\n- "delete my shopping list" → actionType=delete_list, todoListTitle="shopping list"\n- "delete shopping list and work list" → actionType=delete_list, todoListTitles=["shopping list", "work list"]\n- "delete all daily lists" → actionType=delete_list, deletePattern="daily"\n- "I want to track calories" → actionType=calorie_setup\n- "I ate a chicken sandwich for lunch" → actionType=log_food, foodDescription="chicken sandwich", mealType="lunch"\n- "log 350 calories paneer" → actionType=log_food, foodDescription="paneer", calories=350\n- "I had 150gm rice, 4 roti, rajma, sabzi" → actionType=log_food, foodDescription="150gm rice, 4 roti, rajma, sabzi", mealType="dinner" — estimate total meal calories\n- "how many calories today" → calorie_status\n- "give me diet advice" → diet_advice\n- "make a payment" or "I want to subscribe" → make_payment` }
         ],
         temperature: 0.3,
-        maxTokens: 800
+        maxTokens: 800,
+        responseFormat: { type: 'json_object' }
       }
     });
 

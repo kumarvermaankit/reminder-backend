@@ -754,8 +754,11 @@ RULES:
       }
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('No response from OpenRouter');
+    const content = response.choices?.[0]?.message?.content ?? response.content ?? '';
+    if (!content) {
+      this.logger.warn(`parseWithOpenRouter: empty response, raw: ${JSON.stringify(response).substring(0, 200)}`);
+      return { actionType: 'unknown', confidence: 0 } as ParsedReminder;
+    }
     let jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     // Extract JSON object from mixed text
     const start = jsonStr.indexOf('{');
@@ -785,7 +788,7 @@ RULES:
       }
     });
 
-    return response.choices[0]?.message?.content || "I got you! I'll help set that reminder.";
+    return response.choices?.[0]?.message?.content ?? response.content ?? "I got you! I'll help set that reminder.";
   }
 
   private async detectCompletionWithOpenRouter(provider: AIProvider, userInput: string, userReminders: any[]): Promise<{completed: boolean, reminderId?: string, response: string}> {
@@ -803,7 +806,7 @@ RULES:
       }
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.choices?.[0]?.message?.content ?? response.content ?? '';
     if (!content) return { completed: false, response: "Got it!" };
     let jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const start = jsonStr.indexOf('{');

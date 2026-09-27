@@ -760,9 +760,11 @@ RULES:
     // Extract JSON object from mixed text
     const start = jsonStr.indexOf('{');
     const end = jsonStr.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      jsonStr = jsonStr.substring(start, end + 1);
+    if (start === -1 || end <= start) {
+      this.logger.warn(`parseWithOpenRouter: no JSON found in response: "${content.substring(0, 100)}"`);
+      return { actionType: 'unknown', confidence: 0 } as ParsedReminder;
     }
+    jsonStr = jsonStr.substring(start, end + 1);
     const parsed = JSON.parse(jsonStr);
     this.logger.log(`parseWithOpenRouter raw localTime="${parsed.localTime}" intervalMinutes="${parsed.intervalMinutes}"`);
     return parsed;
@@ -806,9 +808,11 @@ RULES:
     let jsonStr = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const start = jsonStr.indexOf('{');
     const end = jsonStr.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      jsonStr = jsonStr.substring(start, end + 1);
+    if (start === -1 || end <= start) {
+      this.logger.warn(`detectCompletionWithOpenRouter: no JSON found in response`);
+      return { completed: false, response: "Got it!" };
     }
+    jsonStr = jsonStr.substring(start, end + 1);
     return JSON.parse(jsonStr);
   }
 
